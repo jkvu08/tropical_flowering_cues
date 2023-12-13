@@ -703,6 +703,63 @@ def comp_tab(results, path):
     comp_df = round(comp_df,3) 
     return comp_df
 
+def output_metrics(bern_tab, binom_tab):
+    """
+    Calculates five metrics to assess predictive performance: log loss, accuracy, roc auc, pr auc and f1-score
+
+    Parameters
+    ----------
+    bern_tab: observed and predicted bernoulli trials of flowering with observed and predicted prob of flowering
+    binom_tab: observed and predicted counts of individuals flowering and prob of flowering 
+
+    Returns
+    -------
+    list of metrics
+
+    """
+    y = bern_tab['obs'] # observed absence/presence of flowering (0/1)
+    y_pred = bern_tab['pred'] # predicted absence/presence of flowering (0/1)
+    y_prob = bern_tab['pred_prob'] # pred prob of flowering
+    loss = log_loss(y, y_prob) # calculate log loss
+    acc = accuracy_score(y,y_pred) # calculate accuracy 
+    prec = precision_score(y,y_pred) # calculate precision
+    rc = recall_score(y,y_pred) # calculate recall
+    pr = average_precision_score(y, y_prob) # calculate weighed mean of precisions at each threshold given the recall
+    roc = roc_auc_score(y, y_prob) # calculate tarea under the receiver operating characteristic curve
+    f1 = f1_score(y,y_pred) # calculate the f1-score
+    gmean = geometric_mean_score(y, y_pred) # calculate the geometric mean
+    rmse = mean_squared_error(binom_tab['obs'], binom_tab['pred'], squared = False) # calculate the root mean squared error
+    return [loss,acc,prec,rc,roc,pr,f1,gmean,rmse]
+
+def outtab(train_tab, valid_tab, binom_tab, filename, path):
+    '''
+    format performance metrics into a dataframe
+
+    Parameters
+    ----------
+    train_tab : training dataframe of observed and predicted bernoulli trials for flowering
+    valid_tab : validation dataframe of observed and predicted bernoulli trials for flowering 
+    binom_tab : dataframe of observed and predicted counts of individuals flowering and prob of flowering
+    filename : file name 
+    path : path to save file
+
+    Returns
+    -------
+    output : dataframe of performance metrics
+
+    '''
+    # create empty dataframe and assign metrics as column names
+    output = DataFrame(columns=['loss','acc','prec','rec','roc','pr','f1','gmean','rmse'])
+    # generate training performance metrics
+    train_results = output_metrics(train_tab, binom_tab[binom_tab['dataset'] == 'train'])
+    output.loc[len(output.index)] = train_results # add to dataframe
+    # generate validation performance metrics
+    valid_results = output_metrics(valid_tab, binom_tab[binom_tab['dataset']=='valid'])
+    output.loc[len(output.index)] = valid_results # add to dataframe
+    output.index = ['train','valid'] # assign indices
+    output.to_csv(path+ filename +'_output_metrics.csv') # save performance metric table
+    return output
+
 ### DEFINE VISUALIZATION FUNCTIONS
 def roc_plot(y, y_prob):
     """
@@ -1063,126 +1120,116 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         pdf.savefig() # save figure
         pyplot.close() # close page
     return train_tab, valid_tab, binom_pred
-     
-def output_metrics(bern_tab, binom_tab):
-    """
-    Calculates five metrics to assess predictive performance: log loss, accuracy, roc auc, pr auc and f1-score
-
-    Parameters
-    ----------
-    y : true observed target values
-    y_pred : predicted class
-    y_prob : positive class prediction probability
-
-    Returns
-    -------
-    list of metrics
-
-    """
-    y = bern_tab['obs']
-    y_pred = bern_tab['pred']
-    y_prob = bern_tab['pred_prob']
-    loss = log_loss(y, y_prob)
-    acc = accuracy_score(y,y_pred)
-    prec = precision_score(y,y_pred)
-    rc = recall_score(y,y_pred)
-    pr = average_precision_score(y, y_prob)
-    roc = roc_auc_score(y, y_prob)
-    f1 = f1_score(y,y_pred)
-    gmean = geometric_mean_score(y, y_pred)
-    rmse = mean_squared_error(binom_tab['obs'], binom_tab['pred'], squared = False)
-    return [loss,acc,prec,rc,roc,pr,f1,gmean,rmse]
-
-def outtab(train_tab, valid_tab, binom_tab, filename, path):
-    output = DataFrame(columns=['loss','acc','prec','rec','roc','pr','f1','gmean','rmse'])
-    train_results = output_metrics(train_tab, binom_tab[binom_tab['dataset'] == 'train'])
-    output.loc[len(output.index)] = train_results
-    valid_results = output_metrics(valid_tab, binom_tab[binom_tab['dataset']=='valid'])
-    output.loc[len(output.index)] = valid_results
-    output.index = ['train','valid']
-    output.to_csv(path+ filename +'_output_metrics.csv')
-    return output
-
+   
+### MODEL WRAPPER FUNCTION  
 def wrapper_fun(data, params, species, covariates, relation = None, direction = None, threshold = True):
     """
     wrapper function to run Bayesian logistic regression cue models
 
     Parameters
     ----------
-    data : phenology data set with target variable 
+    data : formatted phenology data for all species
     params : model parameters
-    species : focal species being modelled
+    species : focal species being modeled
     covariates: covariates of interest
+    relation: file name suffix used to specify the directionality of the cue relationships, but can take on any string
+    direction: list of cue threshold directionality ('positive' = exceeds threshold, 'negative' = falls below threshold)
     threshold: Boolean indicating whether the model incorporates thresholds or not
     
     Raises
     ------
     Exception
-        print error is invalid covariate is used
+        print error if invalid covariate used
 
     Returns
     -------
     None.
 
     """
-    first_time = time.time()
-    params['species'] = species
-    params['covariates'] = covariates
-    params['threshold'] = threshold
-    datasub, X, y = data_gen(data, params)
-    train_X, valid_X, train_y, valid_y = train_test_data(X,y,datasub,gss)
-    params['relation'] = relation
-    params['direction'] = direction
-        
-    if len(params['covariates']) ==1:
-        params['name_var'] = ['y','p','w','x']
-        params['variables'] = ['~w','~p','~x']
-        model = single_model(train_X,train_y,params)
-    elif len(params['covariates'])==2:
-        params['name_var'] = ['y','p','p0','p1','w0','w1','x0','x1']
-        params['variables'] = ['~p','~p0','~p1','~w0','~w1','~x0','~x1']
-        
-
+    first_time = time.time() # monitor computation time
+    params['species'] = species # reassign species 
+    params['covariates'] = covariates # reassign covariates
+    params['threshold'] = threshold # reassign threshold 
+    params['relation'] = relation # reassign relation
+    params['direction'] = direction # reassign direction
+    # subset focal species phenology data, covariate array and response array
+    datasub, X, y = data_gen(data, params) 
+    # split data into training and validation
+    train_X, valid_X, train_y, valid_y = train_test_data(X,
+                                                         y,
+                                                         datasub,
+                                                         gss) 
+    # run flowering cue model
+    if len(params['covariates']) ==1: # if single weather condition assumed to cue flowering
+        params['name_var'] = ['y','p','w','x'] # reassign variable names
+        params['variables'] = ['~w','~p','~x'] # reassign variables
+        # generate single cue model architecture
+        model = single_model(train_X,
+                             train_y,
+                             params) 
+    elif len(params['covariates'])==2: # if two weather conditions assumed to cue flowering
+        params['name_var'] = ['y','p','p0','p1','w0','w1','x0','x1'] # reassign variable names
+        params['variables'] = ['~p','~p0','~p1','~w0','~w1','~x0','~x1'] # reassign variables 
+        # if rain and drought are assumed to be the cues, the cues must occur sequentially due to autocorrelation 
         if 'rain' in params['covariates'] and 'drought' in params['covariates']:
             params['sequential'] = True
+        # if solar and temp are assumed to be the cues, the cues must occur sequentially due to high correlation
         elif 'solar' in params['covariates'] and 'temp' in params['covariates']:
             params['sequential'] = True
-        else:
+        # cue periods may overlap for other cue combinations
+        else: 
             params['sequential'] = False
-        model = double_model(train_X,train_y,params)
-    else:
-        raise Exception ('invalid covariates entered')
-    results = run_model(train_X,train_y,model,params, save=params['save'])
-    print('training took ' + str(round((time.time()-first_time)/60,3)) + ' mins')
+        # generate double cue model architecture 
+        model = double_model(train_X,
+                             train_y,
+                             params) 
+    else: # otherwise raise exception
+        raise Exception ('too few or too many covariates entered')
+    # run model and save output 
+    results = run_model(train_X,
+                        train_y,
+                        model,
+                        params, 
+                        save=params['save']) 
+    print('training took ' + str(round((time.time()-first_time)/60,3)) + ' mins') # output run time
     
     # make predictions on validation set
     with results['model']:
         pm.set_data({'X': valid_X,'n': valid_y[:,1].astype('int32')})
         results['vppc'] = pm.sample_posterior_predictive(results['trace'],
                                               var_names =params['name_var'])
-# start here
+
     # save model output
-    save_time = time.time()
+    save_time = time.time() # monitor saving time
     joblib.dump(results,results['filename']+'.pkl')    
-    print('model saving took: ' + str((time.time()-save_time)/60) + ' minutes') # output how long saving takes
+    print('model saving took: ' + str((time.time()-save_time)/60) + ' minutes') # output how long it takes to save
     
     # visualize results 
-    train_tab, valid_tab, binom_tab = pymc_vis_split(results, train_y, valid_y, params, path+params['species']+'\\')
-    print('visualization done')    
+    train_tab, valid_tab, binom_tab = pymc_vis_split(results, 
+                                                     train_y, 
+                                                     valid_y, 
+                                                     params, 
+                                                     path+params['species']+'\\')
+    print('visualization done')
     
     # generate performance metrics
-    output = outtab(train_tab, valid_tab, binom_tab, results['filename'], path)
-    print('took ' + str((time.time()-first_time)/60) + 'minutes')
+    output = outtab(train_tab, 
+                    valid_tab, 
+                    binom_tab, 
+                    results['filename'], 
+                    path)
+    print('took ' + str((time.time()-first_time)/60) + 'minutes') # output how long it takes to generate and save metrics
     gc.collect() # dump model from memory
     gc.collect() # dump model from memory
     gc.collect() # dump model from memory
     return output
-   
+
+### RUN MODELS
 # assign parameters
-params = {'species': 'Ambora',
-          'lower_lag':0,
-          'upper_lag':110,
-          'upper_lb': 100,
+params = {'species': 'Ambora', # focal species
+          'lower_lag':0, # minimum number of days expected between weather cue and flowering event for single cue model
+          'upper_lag':110, # maximum number of days expected between weather cue and flowering event
+          'upper_lb': 100, # maximum 
           'lower_lag0': 0,
           'upper_lag0':110,
           'lower_lag1': 0,
@@ -1207,7 +1254,7 @@ params = {'species': 'Ambora',
           'mtype': 'chen'}
 
 #run single cue models
-# wrapper_fun(data, params, 'Rahiaka', ['rain'],False)
+wrapper_fun(data, params, 'Rahiaka', ['rain'],False)
 # wrapper_fun(data, params, 'Rahiaka', ['temp'],False)
 # wrapper_fun(data, params, 'Rahiaka', ['solar'],False)
 
