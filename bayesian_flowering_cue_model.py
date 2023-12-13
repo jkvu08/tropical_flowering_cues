@@ -632,16 +632,17 @@ def summary_tab(results, params,path):
     hdi_df = pd.concat([hdi_95, hdi_90, hdi_80, hdi_50], axis = 1) # concatenate credible intervals into a single table
     
     # backtransform threshold values (unnormalize)
-    if len(params['covariates']) == 2: # if these results are from a double cue model 
-        if params['covariates'][0] == 'temp':
+    if params['covariates'][0] == 'temp':
             sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(32.1225-14.71125)+14.71125 
             hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(32.1225-14.71125)+14.71125 
-        elif params['covariates'][0] == 'solar':
-            sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(8846-279)+279 
-            hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(8846-279)+279
-        else:
-            sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
-            hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(206.8)  
+    elif params['covariates'][0] == 'solar':
+        sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(8846-279)+279 
+        hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(8846-279)+279
+    else:
+        sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
+        hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(206.8)  
+
+    if len(params['covariates']) == 2: # if these results are from a double cue model 
         if params['covariates'][1] == 'temp':
             sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']]*(32.1225-14.71125)+14.71125
             hdi_df.loc['threshold1',:] = hdi_df.loc['threshold1',:]*(32.1225-14.71125)+14.71125
@@ -651,16 +652,6 @@ def summary_tab(results, params,path):
         else:
             sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
             hdi_df.loc['threshold1',:] = hdi_df.loc['threshold1',:]*(206.8)  
-    else: # otherwise the results are from a single cue model 
-        if params['covariates'][0] == 'temp':
-            sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']]*(32.1225-14.71125)+14.71125
-            hdi_df.loc['threshold',:] = hdi_df.loc['threshold',:]*(32.1225-14.71125)+14.71125
-        elif params['covariates'][0] == 'solar':
-            sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']]*(8846-279)+279 
-            hdi_df.loc['threshold',:] = hdi_df.loc['threshold',:]*(8846-279)+279
-        else:
-            sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
-            hdi_df.loc['threshold',:] = hdi_df.loc['threshold',:]*(206.8)  
             
     summary_df = pd.concat([sum_df, hdi_df], axis = 1) # concatenate credible intervals to summary tables
     hdi_df = round(hdi_df,3) # round values
