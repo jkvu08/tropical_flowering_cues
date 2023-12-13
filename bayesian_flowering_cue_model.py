@@ -377,56 +377,60 @@ def run_model(X, y, model, params, save = None):
             'filename':filename}
 
 ### DATA PREDICTION FUNCTIONS
-def bern_pred_gen(y, ypred, ds):
+def bern_pred_gen(y, ypred, ds = 'train'):
     '''
     generate bernoulli predictions 
 
     Parameters
     ----------
-    y : TYPE
-        DESCRIPTION.
-    ypred : TYPE
-        DESCRIPTION.
-    ds : TYPE
-        DESCRIPTION.
+    y : observed counts of the individuals flowering
+    ypred : predicted counts of individuals flowering 
+    ds : datasplit identifier, 'train' or 'valid'
+        DEFAULT = 'train'
 
     Returns
     -------
-    bern_tab : TYPE
-        DESCRIPTION.
+    bern_tab : dataframe of obs and pred bernoulli trials of species flowering with obs and pred prob of flowering 
 
     '''
-    obs = []
-    probs = []
-    preds = []
-    pprobs = []
+    # create empty list to store data for
+    obs = [] # observed absence/presence of individuals flowering (0/1)
+    probs = [] # observed prob of flowering 
+    preds = [] # predicted absence/presence of individuals flowering (0/1)
+    pprobs = [] # predicted prob of flowering 
+    # for each survey date
     for i in range(len(y)):    
-        ones= np.ones(int(y[i, 0]))
-        zeros= np.zeros(int(y[i,1]-y[i,0]))
-        obs_oz = np.concatenate([ones,zeros])
-        np.random.shuffle(obs_oz)
+        # generate observed 0/1
+        ones= np.ones(int(y[i, 0])) # generate 1's 
+        zeros= np.zeros(int(y[i,1]-y[i,0])) # generate 0's
+        obs_oz = np.concatenate([ones,zeros]) # concatenate 1's and 0's
+        np.random.shuffle(obs_oz) # randomly shuffle - can randomly shuffle under the assumption that individual identity is not important
+        proba = np.repeat(y[i,2], int(y[i,1])) # duplicate the obs prob of flowering
+        
+        # generate predicted 0/1 
+        pones= np.ones(int(ypred[i, 0])) # generate 1's 
+        pzeros= np.zeros(int(ypred[i,1]-ypred[i,0])) # generate 0's
+        pred_oz = np.concatenate([pones,pzeros]) # concatenate 1's and 0's
+        np.random.shuffle(pred_oz) # randomly shuffle
+        pproba = np.repeat(ypred[i,2], int(ypred[i,1])) # duplicate the pred prob of flowering
+        
+        # append results to lists
+        obs += [obs_oz] # obs bernoulli trials of species flowering 
+        probs += [proba] # obs prob of species flowering
+        preds += [pred_oz] # pred bernoulli trials of species flowering 
+        pprobs += [pproba] # pred prob of species flowering
     
-        proba = np.repeat(y[i,2], int(y[i,1]))
-        
-        pones= np.ones(int(ypred[i, 0]))
-        pzeros= np.zeros(int(ypred[i,1]-ypred[i,0]))
-        pred_oz = np.concatenate([pones,pzeros])
-        np.random.shuffle(pred_oz)
-        
-        pproba = np.repeat(ypred[i,2], int(ypred[i,1]))
-        
-        obs += [obs_oz]
-        probs += [proba]
-        preds += [pred_oz]
-        pprobs += [pproba]
-    
-    obs = np.concatenate(obs)
+    # convert from list to array
+    obs = np.concatenate(obs) 
     probs = np.concatenate(probs)
     preds = np.concatenate(preds)
     pprobs = np.concatenate(pprobs)
     
     bern_tab = pd.DataFrame({'dataset': [ds]*len(obs),
-                             'obs': obs, 'obs_prob': probs, 'pred': preds, 'pred_prob': pprobs})
+                             'obs': obs, 
+                             'obs_prob': probs, 
+                             'pred': preds, 
+                             'pred_prob': pprobs})
     
     return bern_tab
 
@@ -437,7 +441,7 @@ def prob_pred_bern(results,train_y,valid_y, path, save = True):
     Parameters
     ----------
     results : result file from mcmc
-    y: observed values
+    y: observed counts of individuals flowering
     path: path to save output
 
     Returns
@@ -469,7 +473,7 @@ def prob_pred_bern(results,train_y,valid_y, path, save = True):
     train_tab = bern_pred_gen(train_y,train_predictions,'train') # generate bernoulli predictions for training data (expand counts of individuals flowering to 0 and 1s)
     valid_tab = bern_pred_gen(valid_y,valid_predictions,'valid') # generate bernoulli predictions for validation data (expand counts of individuals flowering to 0 and 1s)
     
-    bern_pred = pd.concat([train_tab, valid_tab], axis = 0) # put training nad validation predictions into same dataframe
+    bern_pred = pd.concat([train_tab, valid_tab], axis = 0) # put training and validation predictions into same dataframe
     
     # to save or not
     if save == True:
@@ -1060,44 +1064,6 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         pyplot.close() # close page
     return train_tab, valid_tab, binom_pred
      
-
-
-def prob_pred_split(results,train_y,valid_y, path):
-    """
-    Generate class probability and predictions and save into file
-
-    Parameters
-    ----------
-    results : result file from mcmc
-    y: observed values
-    path: path to save output
-
-    Returns
-    -------
-    train_prob : training class probability
-    train_pred : training class prediction
-    valid_prob : validation class probability
-    valid_pred : validation class prediction
-
-    """
-    train_y = train_y.astype('int32')
-    valid_y = valid_y.astype('int32')
-    
-    train_prob = results['ppc']['p'].mean(axis=0) # get mean posterior predictions
-    train_pred = np.random.binomial(n=train_y[:,1], p=train_prob) # generate predictions
-    
-    valid_prob = results['vppc']['p'].mean(axis=0) # get mean posterior predictions
-    valid_pred = np.random.binomial(n=valid_y[:,1], p=valid_prob) # generate predictions
-    
-    obs = np.concatenate((train_y[:,0], valid_y[:,0]), axis= 0)
-    probs= np.concatenate((train_prob, valid_prob), axis= 0)
-    pred = np.concatenate((train_pred, valid_pred), axis= 0)
-    
-    pred_tab = pd.DataFrame({'dataset': ['train']*len(train_y) + ['valid']*len(valid_y),
-                             'obs': obs, 'prob': probs, 'pred': pred})
-    pred_tab.to_csv(path+results['filename'] + '_predictions.csv')
-    return train_prob, train_pred, valid_prob, valid_pred
-
 def output_metrics(bern_tab, binom_tab):
     """
     Calculates five metrics to assess predictive performance: log loss, accuracy, roc auc, pr auc and f1-score
