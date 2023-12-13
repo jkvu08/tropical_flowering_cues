@@ -57,18 +57,19 @@ data = read_csv('kian_phenology_binomial_format.csv',header=0).iloc[:,1:]
 LABELS = ["no flower","flower"]
 
 # cue dictionary that associates the weather cue name with column index in covariate array
+# used to subset covariate array
 cue_dict = {'rain': 0,
             'drought': 0,
             'temp': 1,
             'solar': 2}
 
 # generator that will be used to split the training and validation dataset
-# use group split cause we are spliting by year
+# used group split in order to split by year
 gss = GroupShuffleSplit(n_splits=1,  # only need 1 split: training and testing
                         train_size = 0.6, # use about 60% on training data and set a random state
                         random_state = 235) # optional to assigned random state
 
-# define data formating functions
+### DATA FORMATTING FUNCTIONS
 def data_gen(data, params):
     """
     Generate species specific response and covariate data.
@@ -122,7 +123,7 @@ def train_test_data(X,y, datasub,gss):
         train_y, valid_y = y[train_index,:], y[valid_index,:]
     return train_X, valid_X, train_y, valid_y
 
-# define model functions
+### DATA MODEL FUNCTIONS
 def single_model(X, y, params):
     """
     architecture for Bayesian flowering model when plant assumed to be cued by a single weather condition
@@ -329,22 +330,34 @@ def run_model(X, y, model, params, save = None):
     """
     start_time = time.time() # generate start time to monitor computation time
     with model:
-        step1=pm.NUTS(target_accept=params['nuts_target']) # set sampler for continous variables and mean acceptance probability
+        step1=pm.NUTS(target_accept=params['nuts_target']) # set sampler for continuous variables and assign mean acceptance probability (i.e., nuts_target)
         step2=pm.Metropolis() # set sampler for discrete variables
         step = [step1,step2] # put sampler steps together
-        trace=pm.sample(draws =params['ni'], step=step, return_inferencedata=False, # draw samples specifying number of draws, sampling method, do not return inferenceData
-                              chains=params['nc'], tune=params['nb']) # number of chains, number of burn-ins
-        trace = trace._slice(slice(0,params['ni'],params['nt'])) # thin samples
-        postpred = pm.sample_posterior_predictive(trace=trace, var_names = params['name_var']) # sample posterior predictions
-        infdata = az.from_pymc3(trace = trace, log_likelihood = True) # get inference data
+        # draw samples
+        trace=pm.sample(draws =params['ni'], # number of draws
+                        step=step, 
+                        return_inferencedata=False, # do not return inferenceData
+                        chains=params['nc'], # number of chains
+                        tune=params['nb']) # number of burn-ins
+        # thin samples
+        trace = trace._slice(slice(0,params['ni'],params['nt'])) 
+        # sample posterior predictions
+        postpred = pm.sample_posterior_predictive(trace=trace, 
+                                                  var_names = params['name_var']) 
+        # get inference data
+        infdata = az.from_pymc3(trace = trace, 
+                                log_likelihood = True) 
+        
     print('model took', (time.time()-start_time)/60, 'minutes') # output how long the model took
-     # set filename
-    if params['threshold'] == True:    
-        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation']  # assign filename
-    else:
-        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation']+'_nt'  # assign filename
     
-    if save == 'full':
+    # assign filename
+    if params['threshold'] == True:    
+        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation'] 
+    else:
+        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation']+'_nt'
+    
+    # save output
+    if save == 'full':# save all model components
         start_time = time.time() # restart the time to see how long saving takes
         # put model and components into a dictionary and save as pickle
         joblib.dump({'model': model,
@@ -363,7 +376,108 @@ def run_model(X, y, model, params, save = None):
             'ppc': postpred,
             'filename':filename}
 
-# define metric functions
+### DATA PREDICTION FUNCTIONS
+def bern_pred_gen(y, ypred, ds):
+    '''
+    generate bernoulli predictions 
+
+    Parameters
+    ----------
+    y : TYPE
+        DESCRIPTION.
+    ypred : TYPE
+        DESCRIPTION.
+    ds : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    bern_tab : TYPE
+        DESCRIPTION.
+
+    '''
+    obs = []
+    probs = []
+    preds = []
+    pprobs = []
+    for i in range(len(y)):    
+        ones= np.ones(int(y[i, 0]))
+        zeros= np.zeros(int(y[i,1]-y[i,0]))
+        obs_oz = np.concatenate([ones,zeros])
+        np.random.shuffle(obs_oz)
+    
+        proba = np.repeat(y[i,2], int(y[i,1]))
+        
+        pones= np.ones(int(ypred[i, 0]))
+        pzeros= np.zeros(int(ypred[i,1]-ypred[i,0]))
+        pred_oz = np.concatenate([pones,pzeros])
+        np.random.shuffle(pred_oz)
+        
+        pproba = np.repeat(ypred[i,2], int(ypred[i,1]))
+        
+        obs += [obs_oz]
+        probs += [proba]
+        preds += [pred_oz]
+        pprobs += [pproba]
+    
+    obs = np.concatenate(obs)
+    probs = np.concatenate(probs)
+    preds = np.concatenate(preds)
+    pprobs = np.concatenate(pprobs)
+    
+    bern_tab = pd.DataFrame({'dataset': [ds]*len(obs),
+                             'obs': obs, 'obs_prob': probs, 'pred': preds, 'pred_prob': pprobs})
+    
+    return bern_tab
+
+def prob_pred_bern(results,train_y,valid_y, path, save = True):
+    """
+    Generate class probability and predictions and save into file
+
+    Parameters
+    ----------
+    results : result file from mcmc
+    y: observed values
+    path: path to save output
+
+    Returns
+    -------
+    train_prob : training class probability
+    train_pred : training class prediction
+    valid_prob : validation class probability
+    valid_pred : validation class prediction
+
+    """
+    train_prob = np.median(results['ppc']['p'],axis=0) # get mean posterior predictions (prob of flowering)
+    train_pred = np.random.binomial(n=train_y[:,1].astype('int32'), p=train_prob) # generate predictions (counts of individuals flowering)
+    train_predictions = np.column_stack((train_pred,train_y[:,1], train_prob)) # organize into same array
+    
+    valid_prob = np.median(results['vppc']['p'],axis=0) # get mean posterior predictions(prob of flowering)
+    valid_pred = np.random.binomial(n=valid_y[:,1].astype('int32'), p=valid_prob) # generate predictions (counts of individuals flowering)
+    valid_predictions = np.column_stack((valid_pred,valid_y[:,1], valid_prob)) # organize into same array
+    
+    obs = np.concatenate((train_y[:,0], valid_y[:,0]), axis= 0) # organize observations (obs counts of individuals flowering)
+    probs= np.concatenate((train_prob, valid_prob), axis= 0) # organize probabilities (median pred prob of individuals flowering)
+    pred = np.concatenate((train_pred, valid_pred), axis= 0) # organize predictions (pred counts of individuals flowering)
+
+    # organize binomial predictions
+    binom_pred = pd.DataFrame({'dataset': ['train']*len(train_y) + ['valid']*len(valid_y),
+                             'obs': obs, 
+                             'prob': probs, 
+                             'pred': pred}) 
+    
+    train_tab = bern_pred_gen(train_y,train_predictions,'train') # generate bernoulli predictions for training data (expand counts of individuals flowering to 0 and 1s)
+    valid_tab = bern_pred_gen(valid_y,valid_predictions,'valid') # generate bernoulli predictions for validation data (expand counts of individuals flowering to 0 and 1s)
+    
+    bern_pred = pd.concat([train_tab, valid_tab], axis = 0) # put training nad validation predictions into same dataframe
+    
+    # to save or not
+    if save == True:
+        binom_pred.to_csv(path+results['filename'] + 'binom_predictions.csv')
+        bern_pred.to_csv(path+results['filename'] + 'bern_predictions.csv')
+    return train_tab, valid_tab, binom_pred
+
+### METRIC FUNCTIONS
 def confusion_mat(y, y_pred, LABELS, normalize = 'true'):
     """
     generates and visualizes the confusion matrix
@@ -377,10 +491,19 @@ def confusion_mat(y, y_pred, LABELS, normalize = 'true'):
 
     """
     cm = confusion_matrix(y,y_pred, normalize = normalize) # generate confusion matrix
-    if normalize == None: # generate the confusion matrix graphic
-        sns.heatmap(cm, xticklabels=LABELS, yticklabels=LABELS, annot=True, fmt ='d') # specific integers
-    else:
-        sns.heatmap(cm, xticklabels=LABELS, yticklabels=LABELS, annot=True)
+    # generate the confusion matrix graphic
+    if normalize == None: # visualize counts
+        sns.heatmap(cm, 
+                    xticklabels=LABELS, 
+                    yticklabels=LABELS, 
+                    annot=True, 
+                    fmt ='d') 
+    else: # visualize proportions
+        sns.heatmap(cm, 
+                    xticklabels=LABELS, 
+                    yticklabels=LABELS, 
+                    annot=True) 
+        
     pyplot.title("Confusion matrix") # add title
     pyplot.ylabel('True class') # add y axis title
     pyplot.xlabel('Predicted class') # add x axis title
@@ -399,7 +522,11 @@ def class_report(y, y_pred):
     class_rep : classification report
 
     """
-    class_rep = classification_report(y,y_pred, zero_division = 0, output_dict = True) # generatate classification report as dictionary
+    # generatate classification report as dictionary
+    class_rep = classification_report(y,
+                                      y_pred, 
+                                      zero_division = 0, 
+                                      output_dict = True) 
     class_rep = DataFrame(class_rep).transpose() # convert dictionary to dataframe
     return class_rep 
 
@@ -445,7 +572,10 @@ def get_hdi(ary, hdi_prob, var_names):
     ci : table of credible intervals for each variable of interest 
 
     """
-    ci = az.hdi(ary=ary,hdi_prob =float(hdi_prob), var_names=var_names) # get credible intervals
+    # get credible intervals
+    ci = az.hdi(ary=ary,
+                hdi_prob =float(hdi_prob), 
+                var_names=var_names) 
     ci = ci.to_dataframe().transpose() # transpose and turn into dataframe
     ci.columns = ['lower_'+hdi_prob[2:4], 'upper_'+hdi_prob[2:4]] # rename columns
     return ci
@@ -466,19 +596,38 @@ def summary_tab(results, params,path):
     hdi_df : creedible interval summary
     
     """
-    sum_df = pm.summary(results['inference'], var_names = params['variables']) # summarize parameter estimates
-    medval = results['inference']['posterior'].median().values() # calculate the median value
+    # summarize parameter estimates
+    sum_df = pm.summary(results['inference'], 
+                        var_names = params['variables'])
+    
+    # calculate the median value
+    medval = results['inference']['posterior'].median().values() 
     med_df = pd.DataFrame(data = medval) # convert median values to dataframe
-    med_index = list(results['inference']['posterior'].keys()) # get list of parameters in posterior 
-    med_df = pd.DataFrame(data = medval, index = med_index, columns = ['median']) # create dataframe out median values with index as parameter names
+    med_index = list(results['inference']['posterior'].keys()) # get list of parameters in posterior
+    # create dataframe out of median values with index as parameter names
+    med_df = pd.DataFrame(data = medval, 
+                          index = med_index, 
+                          columns = ['median']) 
     med_df = med_df.loc[sum_df.index,:] # sort the median values according to the parameter order in the parameter summary data frame
+    
     sum_df = pd.concat([med_df, sum_df], axis = 1) # concatenate the median and summary tables
-    hdi_95 = get_hdi(results['inference'], '0.95', var_names = params['variables']) # get 95% credible intervals
-    hdi_90 = get_hdi(results['inference'], '0.90', var_names = params['variables']) # get 90% credible intervals
-    hdi_80 = get_hdi(results['inference'], '0.80', var_names = params['variables']) # get 80% credible intervals
-    hdi_50 = get_hdi(results['inference'], '0.50', var_names = params['variables']) # get 50% credible intervals
+    
+    # get credible intervals
+    hdi_95 = get_hdi(results['inference'], 
+                     '0.95', # get 95% credible intervals
+                     var_names = params['variables'])
+    hdi_90 = get_hdi(results['inference'], 
+                     '0.90',  # get 90% credible intervals
+                     var_names = params['variables'])
+    hdi_80 = get_hdi(results['inference'], 
+                     '0.80', # get 80% credible intervals
+                     var_names = params['variables']) 
+    hdi_50 = get_hdi(results['inference'], 
+                     '0.50', # get 50% credible intervals
+                     var_names = params['variables']) 
     hdi_df = pd.concat([hdi_95, hdi_90, hdi_80, hdi_50], axis = 1) # concatenate credible intervals into a single table
-    # backtransform threshold values 
+    
+    # backtransform threshold values (unnormalize)
     if len(params['covariates']) == 2: # if these results are from a double cue model 
         if params['covariates'][0] == 'temp':
             sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(32.1225-14.71125)+14.71125 
@@ -508,8 +657,8 @@ def summary_tab(results, params,path):
         else:
             sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
             hdi_df.loc['threshold',:] = hdi_df.loc['threshold',:]*(206.8)  
+            
     summary_df = pd.concat([sum_df, hdi_df], axis = 1) # concatenate credible intervals to summary tables
- #   summary_df.to_csv(path+results['filename']+'_summary.csv') # save summary tables
     hdi_df = round(hdi_df,3) # round values
     sum_df = round(sum_df,3) # round values
     return sum_df, hdi_df
@@ -528,16 +677,29 @@ def comp_tab(results, path):
     comp_df : comparision table with model selection metrics
 
     """
-    loo = az.loo(results['inference'],results['model']) # calculate the loo metric
-    dloo = az.loo(results['inference'],results['model'], scale ='deviance') # calculate the deviance
-    waic = az.waic(results['inference'],results['model']) # calculate waic
-    comp_df = pd.DataFrame((loo[0:5].values,waic[0:5].values,dloo[0:5].values), index = ['loo','waic','deviance'],  columns = ['metric','se','p','n_samples','n_datapoints']) # concatenate metrics into a dataframe
-    comp_df.to_csv(path+results['filename']+'_modcomp.csv') # save metrics
-    joblib.dump(loo, results['filename']+'_loo.pkl') # save results 
-    comp_df = round(comp_df,3) # round the metrics
+    # calculate the loo metric
+    loo = az.loo(results['inference'],
+                 results['model']) 
+    # calculate the deviance
+    dloo = az.loo(results['inference'],
+                  results['model'], 
+                  scale ='deviance') 
+    # calculate waic
+    waic = az.waic(results['inference'],
+                   results['model'])
+    # concatenate metrics into a dataframe
+    comp_df = pd.DataFrame((loo[0:5].values,waic[0:5].values,dloo[0:5].values), 
+                           index = ['loo','waic','deviance'],  
+                           columns = ['metric','se','p','n_samples','n_datapoints']) 
+    # save metrics
+    comp_df.to_csv(path+results['filename']+'_modcomp.csv')
+    # save results 
+    joblib.dump(loo, results['filename']+'_loo.pkl')
+    # round the metrics
+    comp_df = round(comp_df,3) 
     return comp_df
 
-# define visualization functions
+### DEFINE VISUALIZATION FUNCTIONS
 def roc_plot(y, y_prob):
     """
     generate receiving operator curve graphic
@@ -552,10 +714,16 @@ def roc_plot(y, y_prob):
     None.
 
     """
-    false_pos_rate, true_pos_rate, thresholds = roc_curve(y, y_prob) # get false positive rate, true positive rate and thresholds
-    roc_auc = roc_auc_score(y,y_prob) # get auc roc score
-    pyplot.plot(false_pos_rate, true_pos_rate, linewidth=5, label='ROC_AUC = %0.3f'% roc_auc) # generate roc curve
-    pyplot.plot([0,1],[0,1], linewidth=5) # plot 1 to 1 true positive: false positive line
+    # get false positive rate, true positive rate and thresholds
+    false_pos_rate, true_pos_rate, thresholds = roc_curve(y, y_prob) 
+    # get auc roc score
+    roc_auc = roc_auc_score(y,y_prob) 
+    # generate roc curve
+    pyplot.plot(false_pos_rate, 
+                true_pos_rate, 
+                linewidth=5, 
+                label='ROC_AUC = %0.3f'% roc_auc) 
+    pyplot.plot([0,1],[0,1], linewidth=5)  # plot 1 to 1 true positive: false positive line
     pyplot.xlim([-0.01, 1]) # set x limits
     pyplot.ylim([0, 1.01]) # set y limits
     pyplot.legend(loc='lower right') # add legend
@@ -579,9 +747,16 @@ def pr_plot(y, y_prob):
     """
     precision, recall, thresholds = precision_recall_curve(y, y_prob) # get precision, recall and threshold values
     pr_auc = average_precision_score(y, y_prob) # get aucpr score
-    pyplot.plot(recall,precision, linewidth=5, label='PR_AUC = %0.3f'% pr_auc) # plot precision-recall curve
+    # plot precision-recall curve
+    pyplot.plot(recall,
+                precision, 
+                linewidth=5, 
+                label='PR_AUC = %0.3f'% pr_auc) 
     baseline = len(y[y==1]) / len(y) # get baseline expection, minority class proportion
-    pyplot.plot([0,1],[baseline,baseline], linewidth=5) # plot the baseline
+    # plot the baseline
+    pyplot.plot([0,1],
+                [baseline,baseline], 
+                linewidth=5) 
     pyplot.xlim([-0.01, 1]) # set x limit
     pyplot.ylim([0, 1.01]) # set y limit
     pyplot.legend(loc='upper right') # add legend
@@ -605,8 +780,12 @@ def trace_image(results,params, path):
 
     '''
     # generate trace plot
-    az.plot_trace(results['inference'], compact = True, var_names = params['variables'], # multiple chains on same plot, specific variables to plot
-              divergences = params['divergence'], backend = 'matplotlib', backend_kwargs = {'tight_layout': True}) # specific divergence location, plot aesthetic and tight layout 
+    az.plot_trace(results['inference'], 
+                  compact = True, #  multiple chains on same plot
+                  var_names = params['variables'], # specify variables to plot
+                  divergences = params['divergence'], # specify divergence location
+                  backend = 'matplotlib', # plot aesthetic 
+                  backend_kwargs = {'tight_layout': True}) # tight layout 
     fig = pyplot.gcf() # get last figure (trace plots)
     fig.savefig(path+results['filename']+'_trace.jpg', dpi=150) # save the trace plots as an image to flatten
     pyplot.close() # close the plot
@@ -649,20 +828,43 @@ def dbplot(data,y,cov='w',valid = False, legend = False):
     idx = np.argsort(w)
    
     # plot vertical line for mean cue
-    pyplot.vlines(np.median(w), 0, 1, color='k', ls='--', label ='median') 
+    pyplot.vlines(np.median(w), 
+                  0, 
+                  1, 
+                  color='k', 
+                  ls='--', 
+                  label ='median') 
     # get the 95% prediction intervals
     try:
-        az.plot_hdi(w,input_pi,0.95,fill_kwargs={"alpha": 0.2, "color": "green", "label": "p 95% prediction intervals"})
+        az.plot_hdi(w,
+                    input_pi,
+                    0.95,
+                    fill_kwargs={"alpha": 0.2, 
+                                 "color": "green", 
+                                 "label": "p 95% prediction intervals"})
         # get the 95% credible intervals
-        az.plot_hdi(w,input_p,0.95,fill_kwargs={"alpha": 0.6, "color": "darkgreen", "label": "p 95% credible interval"})
+        az.plot_hdi(w,
+                    input_p,
+                    0.95,
+                    fill_kwargs={"alpha": 0.6, 
+                                 "color": "darkgreen", 
+                                 "label": "p 95% credible interval"})
     except:
         print(cov + ' no variation in median')
     
     # plot median predictive probability of positive class against median estimated cue
-    pyplot.plot(w[idx], p[idx], color='black', lw=2, label="Median p")
+    pyplot.plot(w[idx], 
+                p[idx], 
+                color='black', 
+                lw=2, 
+                label="Median p")
     # plot observed values of y
-    pyplot.scatter(w, np.random.normal(y[:,2], 0.001), marker='.', alpha=0.5, c = 'dimgrey',
-                   label="Data", )
+    pyplot.scatter(w, 
+                   np.random.normal(y[:,2], 0.001), 
+                   marker='.', 
+                   alpha=0.5, 
+                   c = 'dimgrey',
+                   label="Data")
     pyplot.xlabel(cov)# add x axis title
     pyplot.ylabel('p', rotation=0) # add y axis title
     if valid == True:
@@ -670,9 +872,11 @@ def dbplot(data,y,cov='w',valid = False, legend = False):
     else:
         pyplot.title('posterior predictive check')
     if legend == True:
-        pyplot.legend(fontsize=8, loc='center left', framealpha= 0.5) # add legend
-    
-    
+        # add legend
+        pyplot.legend(fontsize=8, 
+                      loc='center left', 
+                      framealpha= 0.5) 
+       
 def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_prob):
     '''
     organize confusion matrices, roc curve, and precision-recall curve into a single figure
@@ -698,6 +902,7 @@ def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_
 
     '''
     fig, axis = pyplot.subplots(2,4,figsize=(12,6)) # generate figure subplots, axes and size 
+    # plot training results
     pyplot.subplot(2,4,1) # designate subplot
     confusion_mat(train_y,train_pred, LABELS = LABELS, normalize = 'true') # plot confusion matrix with proportions
     pyplot.subplot(2,4,2)
@@ -706,6 +911,7 @@ def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_
     roc_plot(train_y, train_prob) # plot roc curve
     pyplot.subplot(2, 4, 4)  
     pr_plot(train_y, train_prob) # plot precision recall curve
+    # plot validation results
     pyplot.subplot(2,4,5) # designate subplot
     confusion_mat(valid_y,valid_pred, LABELS = LABELS, normalize = 'true') # plot confusion matrix with proportions
     pyplot.subplot(2,4,6)
@@ -714,57 +920,12 @@ def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_
     roc_plot(valid_y, valid_prob) # plot roc curve
     pyplot.subplot(2, 4, 8)  
     pr_plot(valid_y, valid_prob) # plot precision recall curve
-   # pyplot.suptitle(title)
     fig.tight_layout() # set tight layout
     return fig
 
-def prob_pred_bern(results,train_y,valid_y, path, save = True):
-    """
-    Generate class probability and predictions and save into file
-
-    Parameters
-    ----------
-    results : result file from mcmc
-    y: observed values
-    path: path to save output
-
-    Returns
-    -------
-    train_prob : training class probability
-    train_pred : training class prediction
-    valid_prob : validation class probability
-    valid_pred : validation class prediction
-
-    """
-    train_prob = np.median(results['ppc']['p'],axis=0) # get mean posterior predictions
-    train_pred = np.random.binomial(n=train_y[:,1].astype('int32'), p=train_prob) # generate predictions
-    train_predictions = np.column_stack((train_pred,train_y[:,1], train_prob)) # organize into same array
-    
-    valid_prob = np.median(results['vppc']['p'],axis=0) # get mean posterior predictions
-    valid_pred = np.random.binomial(n=valid_y[:,1].astype('int32'), p=valid_prob) # generate predictions
-    valid_predictions = np.column_stack((valid_pred,valid_y[:,1], valid_prob)) # organize into same array
-    
-    obs = np.concatenate((train_y[:,0], valid_y[:,0]), axis= 0) # organize observations
-    probs= np.concatenate((train_prob, valid_prob), axis= 0) # organize probabilities
-    pred = np.concatenate((train_pred, valid_pred), axis= 0) # organize predicitons
-
-    binom_pred = pd.DataFrame({'dataset': ['train']*len(train_y) + ['valid']*len(valid_y),
-                             'obs': obs, 'prob': probs, 'pred': pred}) # organize binomial predictions
-    
-    train_tab = bern_pred_gen(train_y,train_predictions,'train') # generate bernoulli predictions for training data
-    valid_tab = bern_pred_gen(valid_y,valid_predictions,'valid') # generate bernoulli predictions for validation data
-    
-    bern_pred = pd.concat([train_tab, valid_tab], axis = 0) # put training nad validation predictions into same dataframe
-    
-    # to save or not
-    if save == True:
-        binom_pred.to_csv(path+results['filename'] + 'binom_predictions.csv')
-        bern_pred.to_csv(path+results['filename'] + 'bern_predictions.csv')
-    return train_tab, valid_tab, binom_pred
-
 def pymc_vis_split(results, train_y, valid_y, params, path):
     """
-    visualize, organize and save pymc results into a single pdf
+    wrapper function to visualize, organize and save pymc results into a single pdf
 
     Parameters
     ----------
@@ -781,83 +942,116 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
     valid_prob : predicted probability for positive cwlass for validation data 
 
     """
-    sum_df, hdi_df = summary_tab(results, params, path) # generate summary table and credible interval table 
-    comp_df = comp_tab(results, path) # generate the commonly used model selection metrics 
-    trace_image(results, params, path) # generate trace image
+    # generate summary table and credible interval table 
+    sum_df, hdi_df = summary_tab(results, 
+                                 params, 
+                                 path) 
+    # generate  model selection metrics 
+    comp_df = comp_tab(results, 
+                       path) 
+    # generate trace image
+    trace_image(results, 
+                params, 
+                path) 
     traceplt = Image.open(path+results['filename']+'_trace.jpg') # open trace plot images
-    
-    #train_prob, train_pred, valid_prob, valid_pred = prob_pred_split(results, train_y, valid_y, path)
-    train_tab, valid_tab, binom_pred = prob_pred_bern(results, train_y, valid_y, path)
-    
-    class_rep = class_rep_split(train_tab['obs'],train_tab['pred'],
-                                valid_tab['obs'],valid_tab['pred'])
-    
-    
+    # generate predictions
+    train_tab, valid_tab, binom_pred = prob_pred_bern(results, 
+                                                       train_y, 
+                                                       valid_y, 
+                                                       path) 
+    # generate classification reports
+    class_rep = class_rep_split(train_tab['obs'],
+                                train_tab['pred'],
+                                valid_tab['obs'],
+                                valid_tab['pred'])
     # generate pdfs
     with PdfPages(path+results['filename']+'_results.pdf') as pdf:
         pyplot.figure(figsize=(8.5, 9)) # assign figure size 
-        pyplot.imshow(traceplt) # plot image
+        pyplot.imshow(traceplt) # plot trace plot image
         pyplot.axis('tight') # show all data
         pyplot.axis('off') # turn off axis labels and lines
         pdf.savefig(dpi=150) # save figure
         pyplot.close() # close page
-        # generate forest/ caterpillar plots
-        az.plot_forest(results['inference'], var_names = params['variables'], 
-                    combined = True,hdi_prob = 0.95, figsize=(6,3))
+        # generate forest/ caterpillar plots with 95% credible intervals
+        az.plot_forest(results['inference'], 
+                       var_names = params['variables'], 
+                       combined = True,
+                       hdi_prob = 0.95, 
+                       figsize=(6,3))
         pyplot.grid() # add grid to plot
         pdf.savefig() # save figure
         pyplot.close() # close page
         
-        az.plot_forest(results['inference'], var_names = params['variables'], 
-                    combined = True,hdi_prob = 0.90, figsize=(6,3))
+        # generate forest/ caterpillar plots with 90% credible intervals
+        az.plot_forest(results['inference'], 
+                       var_names = params['variables'], 
+                       combined = True,
+                       hdi_prob = 0.90, 
+                       figsize=(6,3))
         pyplot.grid() # add grid to plot
         pdf.savefig() # save figure
         pyplot.close() # close page
         
         # generate posterior predictive check plot
-        name_var = params['name_var'][2:]
-        hcol = len(name_var)
+        name_var = params['name_var'][2:] # get variable names
+        hcol = len(name_var) # number of variables
         fig,ax = pyplot.subplots(hcol,2,figsize =(8,3*hcol))
+        # for each variable plot observed, predictions with credible intervals against weather conditions during cue period
         for i in range(hcol):
             pyplot.subplot(hcol,2,2*i+1)
-            dbplot(results['ppc'],train_y, cov=name_var[i],valid = False)        
+            dbplot(results['ppc'],train_y, cov=name_var[i],valid = False) # training 
             pyplot.subplot(hcol,2,2*i+2)
-            dbplot(results['vppc'],valid_y, cov=name_var[i],valid = True)
+            dbplot(results['vppc'],valid_y, cov=name_var[i],valid = True) # validation
         fig.tight_layout()
         pdf.savefig() # save figure
         pyplot.close() # close page
                 
         # generate confusion matrices, roc curves and pr curves  
-        pb_plot = plot_bayes_split(train_tab['obs'],train_tab['pred'], train_tab['pred_prob'], 
-                                   valid_tab['obs'],valid_tab['pred'], valid_tab['pred_prob'])
+        pb_plot = plot_bayes_split(train_tab['obs'],train_tab['pred'], 
+                                   train_tab['pred_prob'], 
+                                   valid_tab['obs'],
+                                   valid_tab['pred'], 
+                                   valid_tab['pred_prob'])
         pdf.savefig(pb_plot) # save figure
         pyplot.close() # close page
         
         # generate subplots to organize table data 
         fig, ax = pyplot.subplots(figsize=(8.5,12),nrows=4)
         # format classification report into graphic
-        metrictab = ax[0].table(cellText=class_rep.values,colLabels = class_rep.columns, rowLabels=class_rep.index,loc='center')
+        metrictab = ax[0].table(cellText=class_rep.values,
+                                colLabels = class_rep.columns, 
+                                rowLabels=class_rep.index,
+                                loc='center')
         metrictab.auto_set_font_size(False) # trun off auto font
         metrictab.set_fontsize(9) # set font size to 9
         ax[0].axis('tight') 
         ax[0].axis('off')
 
         # format summary table into graphic
-        sumtab = ax[1].table(cellText=sum_df.values,colLabels = sum_df.columns, rowLabels=sum_df.index,loc='center')
+        sumtab = ax[1].table(cellText=sum_df.values,
+                             colLabels = sum_df.columns, 
+                             rowLabels=sum_df.index,
+                             loc='center')
         sumtab.auto_set_font_size(False)
         sumtab.set_fontsize(9)
         ax[1].axis('tight')
         ax[1].axis('off')
         
         # format credible interval table into graphic
-        hditab = ax[2].table(cellText=hdi_df.values,colLabels = hdi_df.columns, rowLabels=hdi_df.index,loc='center')
+        hditab = ax[2].table(cellText=hdi_df.values,
+                             colLabels = hdi_df.columns, 
+                             rowLabels=hdi_df.index,
+                             loc='center')
         hditab.auto_set_font_size(False)
         hditab.set_fontsize(9)
         ax[2].axis('tight')
         ax[2].axis('off')
         
         # format metric table into graphic
-        comptab = ax[3].table(cellText=comp_df.values,colLabels=comp_df.columns,rowLabels=comp_df.index, loc='center')
+        comptab = ax[3].table(cellText=comp_df.values,
+                              colLabels=comp_df.columns,
+                              rowLabels=comp_df.index, 
+                              loc='center')
         comptab.auto_set_font_size(False)
         comptab.set_fontsize(9)
         ax[3].axis('tight')
@@ -866,40 +1060,7 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         pyplot.close() # close page
     return train_tab, valid_tab, binom_pred
      
-def bern_pred_gen(y, ypred, ds):
-    obs = []
-    probs = []
-    preds = []
-    pprobs = []
-    for i in range(len(y)):    
-        ones= np.ones(int(y[i, 0]))
-        zeros= np.zeros(int(y[i,1]-y[i,0]))
-        obs_oz = np.concatenate([ones,zeros])
-        np.random.shuffle(obs_oz)
-    
-        proba = np.repeat(y[i,2], int(y[i,1]))
-        
-        pones= np.ones(int(ypred[i, 0]))
-        pzeros= np.zeros(int(ypred[i,1]-ypred[i,0]))
-        pred_oz = np.concatenate([pones,pzeros])
-        np.random.shuffle(pred_oz)
-        
-        pproba = np.repeat(ypred[i,2], int(ypred[i,1]))
-        
-        obs += [obs_oz]
-        probs += [proba]
-        preds += [pred_oz]
-        pprobs += [pproba]
-    
-    obs = np.concatenate(obs)
-    probs = np.concatenate(probs)
-    preds = np.concatenate(preds)
-    pprobs = np.concatenate(pprobs)
-    
-    bern_tab = pd.DataFrame({'dataset': [ds]*len(obs),
-                             'obs': obs, 'obs_prob': probs, 'pred': preds, 'pred_prob': pprobs})
-    
-    return bern_tab
+
 
 def prob_pred_split(results,train_y,valid_y, path):
     """
