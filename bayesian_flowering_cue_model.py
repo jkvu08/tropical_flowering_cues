@@ -28,45 +28,50 @@ from pymc3.distributions.continuous import Lognormal
 from PIL import Image
 
 # set working directory
-os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\data")
+os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues")
 # set directory where results will be saved
-path = "C:\\Users\\Jannet\\Documents\\Dissertation\\results\\BGLM_flower\\"
+path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues\\BGLM_flower\\"
 
 # import data
 #data = read_csv('kian_phenology_bernoulli_09062022.csv',header=0).iloc[:,1:]
-data = read_csv('kian_phenology_binomial_09062022.csv',header=0).iloc[:,1:]
+data = read_csv('kian_phenology_binomial_format.csv',header=0).iloc[:,1:]
 # data attributions:
 # Date - date (YYYY-MM-DD)
 # Species - species local name
 # year - year 
-# mont - month
-# n_fl - number of individuals surveyed on Date
+# month - month
+# week - week of the year
+# biweekly - biweek of the year
+# time - Julian time? 
+# n_fl - number of individuals surveyed on Date for flowering
 # flowers - number of individuals flowering on Date
 # prop_fl - proportion of individuals flowering on Date 
+# n_fr - number of individuals surveyed on Date for flowering
+# fruit - number of individuals fruiting on Date
+# prop_fr - proportion of individuals fruiting on Date 
+# rain - ?
+# temp.mean - mean daily temperature (C)
+# solar.rad - cumulative daily solar radiation (W/m^2)
 
 # assign labels for the visualization
 LABELS = ["no flower","flower"]
 
-# cue dictionary that associates covariate name with column index in covariate array
+# cue dictionary that associates the weather cue name with column index in covariate array
 cue_dict = {'rain': 0,
             'drought': 0,
             'temp': 1,
             'solar': 2}
 
-# generate splits that will be used to split the training and validation dataset
+# generator that will be used to split the training and validation dataset
 # use group split cause we are spliting by year
-# only need 1 split: training and testing
-# use about 60% on training data and set a random state
-gss = GroupShuffleSplit(n_splits=1, train_size = 0.6, random_state = 235) 
-#oversample = RandomOverSampler(sampling_strategy='minority') # define oversampling technique
-#counter=range(0,len(y_train))
-#index,y_resampled=RandomUnderSampler(random_state=0,sampling_strategy={6:600}).fit(counter,y_train_point)
-#X_resampled=X_train_point[index]
+gss = GroupShuffleSplit(n_splits=1,  # only need 1 split: training and testing
+                        train_size = 0.6, # use about 60% on training data and set a random state
+                        random_state = 235) # optional to assigned random state
 
-# define data formating functions 
+# define data formating functions
 def data_gen(data, params):
     """
-    generate species specific data
+    Generate species specific response and covariate data.
 
     Parameters
     ----------
@@ -82,14 +87,14 @@ def data_gen(data, params):
     """
     datasub = data[(data['Species'] == params['species']) & (pd.notna(data['flower']))].reset_index() # subset out focal species data and get rid of flowering NA values
     X = joblib.load(params['species']+'_rain_tmin_solar_mean_norm_binom.pkl') # import species specific covariate arrays which will be used as predictors
-    # This is species specific because it maps the exact date the species was surveyed
-    # The data contains the normalized climate data for all cue window and lag time combinations with respec to the survey date
-    cue_list =[] # create empty list for climatic cue keys 
+    # This is species specific because it maps to the exact date that the species was surveyed
+    # The data contains the normalized weatheer data for all cue window and lag time combinations with respect to the survey date
+    cue_list =[] # create empty list for weather cue keys 
     # populate cue keys in a list
-    for cue in params['covariates']: # for each climatic condition being tested as a cue 
-        cue_list += [cue_dict[cue]] # extract the relevant climatic cue id based on the cue dictionary
+    for cue in params['covariates']: # for each weather condition being tested as a cue 
+        cue_list += [cue_dict[cue]] # extract the relevant weather cue id based on the cue dictionary
     X = X[:,:,:,np.r_[cue_list]] # use cue key list to subset out the relevant covariates
-    y = np.array(datasub.loc[:, ['flower','n_fl','prop_fl']]) # subset out only the phenology specific columns
+    y = np.array(datasub.loc[:, ['flower','n_fl','prop_fl']]) # subset out only columns pertaining to flowering phenology
     if len(X.shape) == 3: # if the shape of the covariate array is 3D make it 4D
         X = X[:,:,:,np.newaxis]
     return datasub, X, y
@@ -100,19 +105,18 @@ def train_test_data(X,y, datasub,gss):
 
     Parameters
     ----------
-    X : focal specise covariates
+    X : focal species covariates
     datasub : focal species dataset
     gss : group split
 
     Returns
     -------
-    train_list : list of training indices by fold 
-    valid_list : list of valid indices by fold
+    train_list : list of training indices
+    valid_list : list of valid indices
 
     """
-    #train_list = [] # create empty list to populate train fold indices
-    #valid_list = [] # create empty list to populate valid fold indices
-    # for each indicies in kfold
+    # for each kfold get the training and validation indices
+    # for this analysis there is only 1 kfold, but this would be extended to multiple kfolds
     for train_index,valid_index in gss.split(X[0,0,:,0], y, groups = datasub['year']):
         train_X, valid_X = X[:,:,train_index,:], X[:,:,valid_index,:]
         train_y, valid_y = y[train_index,:], y[valid_index,:]
@@ -121,7 +125,7 @@ def train_test_data(X,y, datasub,gss):
 # define model functions
 def single_model(X, y, params):
     """
-    generate single cue model without threshold and save results
+    architecture for Bayesian flowering model when when plant assumed to be cued by a single weather condition
 
     Parameters
     ----------
@@ -138,99 +142,53 @@ def single_model(X, y, params):
     # create model and add priors  
     with pm.Model() as single_model: 
         X = pm.Data('X',X) # assign covariate data
-        n = pm.Data('n',y[:,1]) # assign n for binomial
-        alpha=pm.Normal('alpha', mu=0, sigma=params['alpha_sd']) # normal prior for alpha, slpha is the logistic intercept that flowering occurs without the cue threshold being met
-        if (params['direction']) == 'positive': # flowering occurs when climatic conditions exceed a threshold (reserved for rain, warm temp and high light)
+        n = pm.Data('n',y[:,1]) # assign n for binomial (number of individuals sampled on a given day)
+        # alpha is the logistic intercept that flowering occurs even when the cue threshold is not met
+        alpha=pm.Normal('alpha', mu=0, sigma=params['alpha_sd']) # normal prior for alpha
+        if (params['direction']) == 'positive': # flowering occurs when weather conditions exceed a threshold (reserved for rain, warm temp and high light cues)
+            # beta is the logistic slope, which describes the relationshpi between the weather conditions during the cue period and the prob of flowering
             beta=pm.Exponential('beta', lam=0.1) # Exponential prior for beta
-        else: # flowering occurs when climatic conditions fall below a threshold (reserved for drought, low temp and low light)
+        else: # flowering occurs when weather conditions fall below a threshold (reserved for drought, low temp and low light cues)
             prebeta = pm.Exponential('prebeta', lam=0.1) # Exponential prior for prebeta 
-            beta = pm.Deterministic('beta', prebeta*-1) # multiply by -1 to ensure the negative directionality between climatic conditions and the threshold 
-
+            beta = pm.Deterministic('beta', prebeta*-1) # multiply by -1 to ensure the negative directionality between weather conditions and the threshold 
+        
+        # determine cue period, which is defined by lag and window
+        # lag is the number of days between the cue window and flowering event      
         lag = pm.DiscreteUniform('lag', lower=params['lower_lag'], upper=params['upper_lag']) # discrete uniform prior for lag
+        # constrain lag time to the a priori determined upper limit of lag times being tested
+        # this limits to the search space to the more immediate weather conditions, since weather can be cyclicty
+        # also need to do this since the weather cues only calculated within the a priori determined range
         lag = tt.switch(tt.gt(lag,params['upper_lag']),params['upper_lag'], lag) # if the lag is greater than the upper limit, reassign to the upper limit 
-        lag = tt.switch(tt.lt(lag,0),0, lag) # if lag is lower than 0 reassign to 0 
+        lag = tt.switch(tt.lt(lag,0),0, lag) # if lag is lower than 0 reassign to 0 since lag cannot be negative
+        
+        # cue window is the number of consecutive days in which the weather cue occurs 
         window = pm.DiscreteUniform('window', lower=1, upper=params['upper_lb']) # discrete uniform prior for window
+        # constrain window to a priori determined upper limit for time window
+        # since many tropical plants flower sub-annually, this helps to limit the cue to the immediate cycle being assessed
         window = tt.switch(tt.gt(window,params['upper_lb']),params['upper_lb'], window) # if window is greater than the upper limit, reassign to the upper limit
-        window = tt.switch(tt.lt(window,1),1, window) # if the window is lower than 1 reassign to 1
+        window = tt.switch(tt.lt(window,1),1, window) # if the window is lower than 1 reassign to 1 since need at least one day of cues
         
-        if params['threshold'] == True: # if threshold included
+        # two modeling options with out without threshold criteria
+        if params['threshold'] == True: # if prob of flowering increases after threshold condition met
+            # since all weather conditions are normalized, threshold weather condition must also fall within the 0-1 range
             threshold = pm.Uniform('threshold', lower= 0, upper = 1) # normal prior for threshold
+            # prob of flowering increases once weather conditions exceed threshold during the cue period
             if params['direction'] == 'positive':
-                # if climatic condition does not meet threshold, then reassign to 0, otherwise keep climatic condition - threshold  
-                w = pm.Deterministic('w', tt.switch(tt.lt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if climatic conditons < threshold then ressign to 0
+                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition - threshold  
+                w = pm.Deterministic('w', tt.switch(tt.lt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if weather onditons < threshold then ressign to 0
+            # prob of flowering increases once weather conditions drops below a threshold during the cue period
             else:
-                w = pm.Deterministic('w', tt.switch(tt.gt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if climatic conditions > threshold reassign to 0 
-        else: # otherwise use nonthreshold model 
+                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition - threshold  
+                w = pm.Deterministic('w', tt.switch(tt.gt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if weather conditions > threshold reassign to 0 
+        else: # otherwise use non-threshold model, flowering prob is function of weather conditions during cue period
             w = pm.Deterministic('w', X[lag,window,:,0])
-            
-        p = pm.Deterministic('p', pm.math.invlogit(alpha + beta*w)) # generate probability of positive class
-        x = pm.Deterministic('x', X[lag,window,:,0]) # get the climatic conditions in the cue window at the lag period 
-        observed=pm.Binomial("y", n=n, p=p, observed=y[:,0]) # import observed target
+        
+        # generate probability that the species flowers
+        p = pm.Deterministic('p', pm.math.invlogit(alpha + beta*w)) 
+        x = pm.Deterministic('x', X[lag,window,:,0]) # get the weather conditions during the cue period
+        observed=pm.Binomial("y", n=n, p=p, observed=y[:,0]) # import observed number of individuals flowering on each survey day
+        
     return single_model
-
-def double_model_retired(X,y,params):
-    """
-    generate double cue model without threshold and save results
-
-    Parameters
-    ----------
-    X : covariate array
-    y : observed number of individuals flowering 
-    params: model parameters
-
-    Returns
-    -------
-    double_model: model 
-
-    """
-    with pm.Model() as double_model: 
-        X = pm.Data('X',X)  # assign covariate data
-        n = pm.Data('n',y[:,1]) # assign n for binomial
-        alpha=pm.Normal('alpha', mu=0, sd=params['alpha_sd']) # normal prior for alpha
-        beta=pm.Normal('beta', mu=0, sd=params['beta_sd']) # normal prior for beta
-        
-        lag0 = pm.DiscreteUniform('lag0', lower=0, upper=params['upper_lag']) # discrete uniform prior for lag
-        lag0 = tt.switch(tt.gt(lag0,params['upper_lag']),params['upper_lag'], lag0) # if the lag is greater than the upper limit, reassign to the upper limit 
-        lag0 = tt.switch(tt.lt(lag0,0),0, lag0)  # if the lag lower than 0 reassign to 0       
-        
-        window0 = pm.DiscreteUniform('window0', lower=1, upper=params['upper_lb']) # dicrete uniform prior for window
-        window0 = tt.switch(tt.gt(window0,params['upper_lb']),params['upper_lb'], window0) # if the window is greater than the upper limit, reassign to the upper limit 
-        window0 = tt.switch(tt.lt(window0,1),1, window0)  # if the window is lower than 1 reassign to 1
-        # make sure these cues occur sequentially
-        if 'drought' in params['covariates']:
-            lowlim = lag0+window0 # make sure the second cue occurs after the first cue
-            lowlim = tt.switch(tt.lt(lowlim,0),0, lowlim) # if the lag lower than 0 reassign to 0
-            lowlim = tt.switch(tt.gt(lowlim,params['upper_lag']),params['upper_lag'], lowlim) # if the lower lim is greater than upper lag, assign low limit to upper lag
-        elif 'temp' in params['covariates']:
-            if 'solar' in params['covariates']:
-                lowlim = lag0+window0 # make sure the second cue occurs after the first cue
-                lowlim = tt.switch(tt.lt(lowlim,0),0, lowlim) # if the lag lower than 0 reassign to 0
-                lowlim = tt.switch(tt.gt(lowlim,params['upper_lag']),params['upper_lag'], lowlim) # if the lower lim is greater than upper lag, assign low limit to upper lag
-            else:
-                lowlim= 0 # otherwise keep lower limit at 0
-        else:
-            lowlim= 0 # keep lower limit at 0
-            
-        lag1 = pm.DiscreteUniform('lag1', lower=lowlim, upper=params['upper_lag']) # discrete uniform prior for lag
-        lag1 = tt.switch(tt.gt(lag1,params['upper_lag']),params['upper_lag'], lag1) # if the lag is greater than the upper limit, reassign to the upper limit 
-        lag1 = tt.switch(tt.lt(lag1,lowlim),lowlim, lag1) # if the lag lower than lowerlim reassign to lowerlim
-        
-        window1 = pm.DiscreteUniform('window1', lower=1, upper=params['upper_lb']) # dicrete uniform prior for window
-        window1 = tt.switch(tt.gt(window1,params['upper_lb']),params['upper_lb'], window1) # if the window is greater than the upper limit, reassign to the upper limit 
-        window1 = tt.switch(tt.lt(window1,1),1, window1)  # if the window is lower than 1 reassign to 1
-        
-        if params['threshold'] == True: # if threshold included 
-            threshold0 = pm.Normal('threshold0', mu=0, sd=params['threshold_sd']) # normal prior for threshold
-            threshold1 = pm.Normal('threshold1', mu=0, sd=params['threshold_sd']) # normal prior for threshold
-            w = pm.Deterministic('w', (X[lag0,window0,:,0]-threshold0)*(X[lag1,window1,:,1]-threshold1)) # generate cue covariate using threshold model
-        else:
-            w = pm.Deterministic('w', X[lag0,window0,:,0]*X[lag1,window1,:,1])
-        
-        p = pm.Deterministic('p', pm.math.invlogit(alpha + beta*w)) # generate probability of positive class
-        observed=pm.Binomial("y", n=n, p=p, observed=y[:,0]) # import observed target
-        x0 = pm.Deterministic('x0', X[lag0,window0,:,0])
-        x1 = pm.Deterministic('x1', X[lag1,window1,:,1])
-        return double_model
 
 def double_model(X,y,params):
     """
