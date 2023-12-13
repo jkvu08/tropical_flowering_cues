@@ -163,10 +163,10 @@ def single_model(X, y, params):
         lag0 = tt.switch(tt.lt(lag0,0),0, lag0) # if lag is lower than 0 reassign to 0 since lag cannot be negative
         
         # cue window0 is the number of consecutive days in which the weather cue occurs 
-        window0 = pm.DiscreteUniform('window0', lower=1, upper=params['upper_lb0']) # discrete uniform prior for window
+        window0 = pm.DiscreteUniform('window0', lower=1, upper=params['upper_lb']) # discrete uniform prior for window
         # constrain window to a priori determined upper limit for time window
         # since many tropical plants flower sub-annually, this helps to limit the cue to the immediate cycle being assessed
-        window0 = tt.switch(tt.gt(window0,params['upper_lb0']),params['upper_lb0'], window0) # if window is greater than the upper limit, reassign to the upper limit
+        window0 = tt.switch(tt.gt(window0,params['upper_lb']),params['upper_lb'], window0) # if window is greater than the upper limit, reassign to the upper limit
         window0 = tt.switch(tt.lt(window0,1),1, window0) # if the window is lower than 1 reassign to 1 since need at least one day of cues
         
         # two modeling options with out without threshold criteria
@@ -352,9 +352,9 @@ def run_model(X, y, model, params, save = None):
     
     # assign filename
     if params['threshold'] == True:    
-        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation'] 
+        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['relation'] + params['mtype'] 
     else:
-        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['mtype'] +'_'+ params['relation']+'_nt'
+        filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['relation'] +'_nt'+ params['mtype']
     
     # save output
     if save == 'full':# save all model components
@@ -642,7 +642,7 @@ def summary_tab(results, params,path):
         sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold0',['median','mean','sd','hdi_3%','hdi_97%']]*(206.8) 
         hdi_df.loc['threshold0',:] = hdi_df.loc['threshold0',:]*(206.8)  
 
-    if len(params['covariates']) == 2: # if these results are from a double cue model 
+    if len(params['covariates']) == 2: # if there is a second cue
         if params['covariates'][1] == 'temp':
             sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']] = sum_df.loc['threshold1',['median','mean','sd','hdi_3%','hdi_97%']]*(32.1225-14.71125)+14.71125
             hdi_df.loc['threshold1',:] = hdi_df.loc['threshold1',:]*(32.1225-14.71125)+14.71125
@@ -816,7 +816,7 @@ def pr_plot(y, y_prob):
     pyplot.ylabel('Precision') # add y axis title 
     pyplot.xlabel('Recall') # add x axis title
 
-def trace_image(results,params, path):
+def trace_image(results, params, path):
     '''
     generate and save trace plots
 
@@ -844,16 +844,18 @@ def trace_image(results,params, path):
 
 def dbplot(data,y,cov='w',valid = False, legend = False):
     """
-    Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals
+    Posterior predictive check. Plot time series of y and mean predictive probability of y with 95% credible intervals
 
     Parameters
     ----------
     data : inference data
-    y : labeled true values
+    y : labeled true values (obs prob)
     cov: variable to plot
-    modname: model name 
+    valid: boolean, True = restricted to validation data, False = training and valid data both plotted 
+        DEFAULT: False
     legend: boolean, add legend if True
-    
+        DEFAULT: False
+
     Returns
     -------
     None.
@@ -1113,7 +1115,7 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
     return train_tab, valid_tab, binom_pred
    
 ### MODEL WRAPPER FUNCTION  
-def wrapper_fun(data, params, species, covariates, relation = None, direction = None, threshold = True):
+def flower_model_wrapper(data, params, species, covariates, threshold = True, relation = None, direction = None):
     """
     wrapper function to run Bayesian logistic regression cue models
 
@@ -1123,9 +1125,9 @@ def wrapper_fun(data, params, species, covariates, relation = None, direction = 
     params : model parameters
     species : focal species being modeled
     covariates: covariates of interest
+    threshold: Boolean indicating whether the model incorporates thresholds or not
     relation: file name suffix used to specify the directionality of the cue relationships, but can take on any string
     direction: list of cue threshold directionality ('positive' = exceeds threshold, 'negative' = falls below threshold)
-    threshold: Boolean indicating whether the model incorporates thresholds or not
     
     Raises
     ------
@@ -1152,8 +1154,8 @@ def wrapper_fun(data, params, species, covariates, relation = None, direction = 
                                                          gss) 
     # run flowering cue model
     if len(params['covariates']) ==1: # if single weather condition assumed to cue flowering
-        params['name_var'] = ['y','p','w','x'] # reassign variable names
-        params['variables'] = ['~w','~p','~x'] # reassign variables
+        params['name_var'] = ['y','p','w0','x0'] # reassign variable names
+        params['variables'] = ['~w0','~p','~x0'] # reassign variables
         # generate single cue model architecture
         model = single_model(train_X,
                              train_y,
@@ -1217,35 +1219,32 @@ def wrapper_fun(data, params, species, covariates, relation = None, direction = 
 
 ### RUN MODELS
 # assign parameters
-params = {'species': 'Ambora', # focal species
-          'lower_lag':0, # minimum number of days expected between weather cue and flowering event for single cue model
-          'upper_lag':110, # maximum number of days expected between weather cue and flowering event
-          'upper_lb': 100, # maximum 
-          'lower_lag0': 0,
-          'upper_lag0':110,
-          'lower_lag1': 0,
-          'upper_lag1':110,
-          'ni': 1000,
-          'nb':1000,
-          'nc': 4,
-          'nt':1,
-          'covariates': ['temp','solar'],
-          'alpha_sd': 10,
-          'beta_sd': 10,
-          'threshold_sd':10,
-          'nuts_target':0.95,
-          'variables':['~w','~p'],
-          'threshold': True,
-          'relation': 'double_neg',
-          'direction': ['negative','negative'],
+params = {'species': 'Rahiaka', # focal species
+          'threshold': True, # assign whether threshold model is used
+          'covariates': ['temp','solar'], # weather cues 
+          'direction': ['negative','negative'], # assign cue directionality
           'sequential':True,
-          'save': 'full',
-          'divergence':None,
-          'name_var': ['y','w','p','x0','x1'],
-          'mtype': 'chen'}
+          'upper_lb': 100, # maximum cue window for cue 0
+          'lower_lag0': 0, # minimum number of days expected between weather cue and flowering event for cue 0
+          'upper_lag0':110, # maximum number of days expected between weather cue and flowering event for cue 0
+          'lower_lag1': 0, # minimum number of days expected between weather cue and flowering event for cue 1
+          'upper_lag1':110, # maximum number of days expected between weather cue and flowering event for cue 1
+          'ni': 40000, # number of draws
+          'nb':20000, # number of burn-ins
+          'nc': 4, # number of chains
+          'nt':1, # thinning ratio
+          'alpha_sd': 10, # standard deviation for alpha priors
+          'nuts_target':0.95, # mean acceptance probability for NUTS sampler, influences the step size
+          'variables':['~w0','~p','~x0'], # assign variables
+          'name_var': ['y','p','w0','x0'], # assign variable names
+          'save': 'full', # specify how much of model results to save
+          'divergence':None, # specify position of divergence draws
+          'relation': 'double_neg', # assign file name suffix 
+          'mtype': ''} # optional unique model identifier 
 
 #run single cue models
-wrapper_fun(data, params, 'Rahiaka', ['rain'],False)
+mod_metrics = flower_model_wrapper(data, params, 'Rahiaka', ['rain'], True)
+
 # wrapper_fun(data, params, 'Rahiaka', ['temp'],False)
 # wrapper_fun(data, params, 'Rahiaka', ['solar'],False)
 
