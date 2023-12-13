@@ -144,49 +144,49 @@ def single_model(X, y, params):
     with pm.Model() as single_model: 
         X = pm.Data('X',X) # assign predictors
         n = pm.Data('n',y[:,1]) # assign n for binomial (number of individuals sampled on a given day)
-        # alpha is the logistic intercept that flowering occurs even when the cue threshold is not met
-        alpha=pm.Normal('alpha', mu=0, sigma=params['alpha_sd']) # normal prior for alpha
-        if (params['direction']) == 'positive': # flowering occurs when weather conditions exceed a threshold (reserved for rain, warm temp and high light cues)
-            # beta is the logistic slope, which describes the relationship between the weather conditions during the cue period and the prob of flowering
-            beta=pm.Exponential('beta', lam=0.1) # Exponential prior for beta
+        # alpha0 is the logistic intercept that flowering occurs even when the cue threshold is not met
+        alpha0=pm.Normal('alpha0', mu=0, sigma=params['alpha_sd']) # normal prior for alpha
+        if (params['direction'][0]) == 'positive': # flowering occurs when weather conditions exceed a threshold (reserved for rain, warm temp and high light cues)
+            # beta0 is the logistic slope, which describes the relationship between the weather conditions during the cue period and the prob of flowering
+            beta0=pm.Exponential('beta0', lam=0.1) # Exponential prior for beta
         else: # flowering occurs when weather conditions fall below a threshold (reserved for drought, low temp and low light cues)
-            prebeta = pm.Exponential('prebeta', lam=0.1) # Exponential prior for prebeta 
-            beta = pm.Deterministic('beta', prebeta*-1) # multiply by -1 to ensure the negative directionality between weather conditions and the threshold 
+            prebeta0 = pm.Exponential('prebeta0', lam=0.1) # Exponential prior for prebeta 
+            beta0 = pm.Deterministic('beta0', prebeta0*-1) # multiply by -1 to ensure the negative directionality between weather conditions and the threshold 
         
         # determine cue period, which is defined by lag and window
-        # lag is the number of days between the cue window and flowering event      
-        lag = pm.DiscreteUniform('lag', lower=params['lower_lag'], upper=params['upper_lag']) # discrete uniform prior for lag
+        # lag0 is the number of days between the cue window and flowering event      
+        lag0 = pm.DiscreteUniform('lag0', lower=params['lower_lag0'], upper=params['upper_lag0']) # discrete uniform prior for lag
         # constrain lag time to the a priori determined upper limit of lag times being tested
         # this limits to the search space to the more immediate weather conditions, since weather can be cyclicty
         # also need to do this since the weather cues only calculated within the a priori determined range
-        lag = tt.switch(tt.gt(lag,params['upper_lag']),params['upper_lag'], lag) # if the lag is greater than the upper limit, reassign to the upper limit 
-        lag = tt.switch(tt.lt(lag,0),0, lag) # if lag is lower than 0 reassign to 0 since lag cannot be negative
+        lag0 = tt.switch(tt.gt(lag0,params['upper_lag0']),params['upper_lag0'], lag0) # if the lag is greater than the upper limit, reassign to the upper limit 
+        lag0 = tt.switch(tt.lt(lag0,0),0, lag0) # if lag is lower than 0 reassign to 0 since lag cannot be negative
         
-        # cue window is the number of consecutive days in which the weather cue occurs 
-        window = pm.DiscreteUniform('window', lower=1, upper=params['upper_lb']) # discrete uniform prior for window
+        # cue window0 is the number of consecutive days in which the weather cue occurs 
+        window0 = pm.DiscreteUniform('window0', lower=1, upper=params['upper_lb0']) # discrete uniform prior for window
         # constrain window to a priori determined upper limit for time window
         # since many tropical plants flower sub-annually, this helps to limit the cue to the immediate cycle being assessed
-        window = tt.switch(tt.gt(window,params['upper_lb']),params['upper_lb'], window) # if window is greater than the upper limit, reassign to the upper limit
-        window = tt.switch(tt.lt(window,1),1, window) # if the window is lower than 1 reassign to 1 since need at least one day of cues
+        window0 = tt.switch(tt.gt(window0,params['upper_lb0']),params['upper_lb0'], window0) # if window is greater than the upper limit, reassign to the upper limit
+        window0 = tt.switch(tt.lt(window0,1),1, window0) # if the window is lower than 1 reassign to 1 since need at least one day of cues
         
         # two modeling options with out without threshold criteria
         if params['threshold'] == True: # if prob of flowering increases after threshold condition met
             # since all weather conditions are normalized, threshold weather condition must also fall within the 0-1 range
-            threshold = pm.Uniform('threshold', lower= 0, upper = 1) # normal prior for threshold
+            threshold0 = pm.Uniform('threshold0', lower= 0, upper = 1) # normal prior for threshold
             # prob of flowering increases once weather conditions exceed threshold during the cue period
-            if params['direction'] == 'positive':
-                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition - threshold  
-                w = pm.Deterministic('w', tt.switch(tt.lt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if weather onditons < threshold then ressign to 0
+            if params['direction'][0] == 'positive':
+                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition0 - threshold0  
+                w0 = pm.Deterministic('w0', tt.switch(tt.lt(X[lag0,window0,:,0]-threshold0,0),0,X[lag0,window0,:,0]-threshold0)) # if weather onditons < threshold then ressign to 0
             # prob of flowering increases once weather conditions drops below a threshold during the cue period
             else:
-                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition - threshold  
-                w = pm.Deterministic('w', tt.switch(tt.gt(X[lag,window,:,0]-threshold,0),0,X[lag,window,:,0]-threshold)) # if weather conditions > threshold reassign to 0 
+                # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition0 - threshold0  
+                w0 = pm.Deterministic('w0', tt.switch(tt.gt(X[lag0,window0,:,0]-threshold0,0),0,X[lag0,window0,:,0]-threshold0)) # if weather conditions > threshold reassign to 0 
         else: # otherwise use non-threshold model, flowering prob is function of weather conditions during cue period
-            w = pm.Deterministic('w', X[lag,window,:,0])
+            w0 = pm.Deterministic('w0', X[lag0,window0,:,0])
         
         # generate probability that the species flowers
-        p = pm.Deterministic('p', pm.math.invlogit(alpha + beta*w)) 
-        x = pm.Deterministic('x', X[lag,window,:,0]) # get the weather conditions during the cue period
+        p = pm.Deterministic('p', pm.math.invlogit(alpha0 + beta0*w0)) 
+        x0 = pm.Deterministic('x0', X[lag0,window0,:,0]) # get the weather conditions during the cue period
         observed = pm.Binomial("y", n=n, p=p, observed=y[:,0]) # add observed number of individuals flowering on each survey day
     return single_model
 
