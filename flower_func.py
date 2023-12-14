@@ -870,7 +870,7 @@ def trace_image(results, params, path):
     fig.savefig(path+results['filename']+'_trace.jpg', dpi=150) # save the trace plots as an image to flatten
     pyplot.close() # close the plot
 
-def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = None):
+def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = None, legend = False):
     """
     Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals against cue conditions
 
@@ -885,6 +885,8 @@ def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = No
     medthreshold: median threshold cue condition
     modname: plot title
         DEFAULT is None
+    legend: boolean to add legend or not
+        DEFAULT is False
 
     """
     # extract traces
@@ -907,11 +909,11 @@ def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = No
     # get the 95% credible intervals
     az.plot_hdi(x,input_pi,0.95,smooth = False, fill_kwargs={"alpha": 0.2, 
                                                              "color": "grey", 
-                                                             "label": "p 95% credible intervals"})
+                                                             "label": "95% CI"})
     # get the 95% prediction intervals   
     az.plot_hdi(x,input_p,0.95,smooth = False, fill_kwargs={"alpha": 0.6, 
                                                             "color": "dimgrey", 
-                                                            "label": "p 95% prediction intervals"})
+                                                            "label": "95% PI"})
     # plot vertical line for median threshold condition
     pyplot.vlines(x=medthreshold, 
                   ymin=0, 
@@ -932,6 +934,8 @@ def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = No
                    alpha = 0.7,
                    c = 'black',
                    label="observed")
+    
+    # add x-axis titles
     if covariate == 'rain':
         pyplot.xlabel('rainfall (mm)')# add x axis title
     elif covariate == 'temp':
@@ -940,6 +944,12 @@ def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = No
         pyplot.xlabel('solar radiation (W/m2)')# add x axis title
     else:
         raise Exception ('invalid covariate')
+    
+    # option to add legend
+    if legend == True:
+        pyplot.legend()
+        
+    # assign primary axes labels  
     pyplot.ylabel('p', rotation=0) # add y axis title
     pyplot.title(modname)
 
@@ -1020,7 +1030,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
     y = obs_tv['prop_fl'].values # get observe prop of individual flowering ( = prob of flowering)
     
     # plot time series of flowering and weather cues with prediction and credible intervals 
-    fig, ax1 = pyplot.subplots(figsize = (10,2))
+    fig, ax1 = pyplot.subplots(figsize = (10,3))
     ax2 = ax1.twinx()
     
     # prediction interval for flowering prob
@@ -1028,21 +1038,24 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
                      pilp95[idx], 
                      piup95[idx], 
                      color='#98FB98', 
-                     alpha=0.6) 
+                     alpha=0.6,
+                     label='95% PI') 
     
     # credible interval for flowering prob
     ax1.fill_between(np.sort(d), 
                      plp95[idx], 
                      pup95[idx], 
                      color='#308014', 
-                     alpha=0.6) 
+                     alpha=0.6,
+                     label ='95% CI') 
     
     # prediction interval for cue condition
     ax2.fill_between(np.sort(d), 
                      xlp95[idx], 
                      xup95[idx], 
                      color='dimgrey', 
-                     alpha=0.6) 
+                     alpha=0.6,
+                     label='95% PI') 
     
     # median prob of flowering 
     ax1.plot(np.sort(d), 
@@ -1057,7 +1070,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
              color='black', 
              lw=1, 
              linestyle = 'dashed', 
-             label="median cov")
+             label="median x")
     
     # plot training observed flowering prob
     ax1.scatter(d[:len(train_ds)], 
@@ -1065,7 +1078,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
                 marker='^', 
                 alpha=0.6, 
                 c = '#377eb8', 
-                label="Data")  
+                label="training")  
     
     # plot validation observed flowering prob
     ax1.scatter(d[len(train_ds):], 
@@ -1073,8 +1086,24 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
                 marker='o', 
                 alpha=0.6, 
                 c = '#a65628', 
-                label="Data")
+                label="validation")
     
+    # add legend
+    # adjust plot size
+    box1 = ax1.get_position()
+    ax1.set_position([box1.x0, 
+                      box1.y0 + box1.height * 0.2,
+                      box1.width, 
+                      box1.height*0.8])
+    box2 = ax2.get_position()
+    ax2.set_position([box2.x0, 
+                      box2.y0 + box2.height * 0.2,
+                      box2.width, 
+                      box2.height*0.8])
+    # add legend below plots
+    ax1.legend(ncol= 5, loc='upper center', bbox_to_anchor=(0.5, -0.3), frameon=False)
+    ax2.legend(ncol= 2, loc='upper center', bbox_to_anchor=(0.5, -0.45),frameon=False)
+  
     # assign primary axes labels
     ax1.set_xlabel('date') # add x axis title
     ax1.set_ylabel('flowering proportion') # add y axis title
@@ -1219,7 +1248,8 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
                     cov='w'+str(i),
                     covariate = params['covariates'][i],
                     medthreshold = sum_df.loc['threshold'+str(i), 'median'],
-                    modname = params['species'] + ' training')
+                    modname = params['species'] + ' training',
+                    legend = False)
             pyplot.subplot(hcol,2,2*i+2)
              # generate for validation
             covplot(data=results['vppc'],
@@ -1227,7 +1257,8 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
                     cov='w'+str(i),
                     covariate = params['covariates'][i],
                     medthreshold = sum_df.loc['threshold'+str(i), 'median'],
-                    modname = params['species'] + ' validation')
+                    modname = params['species'] + ' validation',
+                    legend = True)
         fig.tight_layout()
         pdf.savefig() # save figure
         pyplot.close() # close page

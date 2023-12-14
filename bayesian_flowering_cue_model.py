@@ -123,6 +123,7 @@ results = flm.run_model(valid_X,
 # explore results
 results.keys()
 # explore pymc3 inference outputs
+results['inference']['posterior'].info()
 results['inference']['posterior']
 results['inference']['log_likelihood']
 results['inference']['sample_stats']
@@ -151,7 +152,7 @@ comp_df
 
 # plot caterpillar plots for each parameter of interest (alpha, beta, lag, window, threshold )
 # visual in file to get a sense of parameter estimates and convergence
-flm.trace_image(results, params, path) # view in file
+flm.trace_image(results, params, path)
 
 # generate bernoulli (0/1) and binomial (counts of individuals) predictions of flowering 
 train_tab, valid_tab, binom_pred = flm.prob_pred_bern(results, 
@@ -164,9 +165,11 @@ class_rep = flm.class_rep_split(train_tab['obs'],
                                 train_tab['pred'],
                                 valid_tab['obs'],
                                 valid_tab['pred'])
+
+# get sense of training and validation performance by class and overall
 class_rep
 
-# generate posterior predictive check plot
+# generate posterior predictive check plots to visualize the relationsihp between weather cue and flowering prob
 hcol = len(params['covariates']) # number of cuues 
 fig,ax = pyplot.subplots(hcol,2,figsize =(8,3*hcol))
 # for each variable plot observed, predictions with credible intervals against weather conditions during cue period
@@ -175,21 +178,24 @@ for i in range(hcol):
     # generate for training
     flm.covplot(data=results['ppc'],
             y=train_y,
-            cov='w'+str(i),
+            cov='x'+str(i),
             covariate = params['covariates'][i],
             medthreshold = sum_df.loc['threshold'+str(i), 'median'],
-            modname = params['species'] + ' training')
+            modname = params['species'] + ' training',
+            legend = False)
     pyplot.subplot(hcol,2,2*i+2)
      # generate for validation
     flm.covplot(data=results['vppc'],
             y=valid_y,
-            cov='w'+str(i),
+            cov='x'+str(i),
             covariate = params['covariates'][i],
             medthreshold = sum_df.loc['threshold'+str(i), 'median'],
-            modname = params['species'] + ' validation')
+            modname = params['species'] + ' validation',
+            legend = True)
+
 fig.tight_layout()
 
-# generate time series plots
+# generate time series plots to visualize the observed versus predicted prob of flowering in relation to the weather conditions during the cue period
 for i in range(hcol):
     flm.time_series_plot(train_ds, 
                      valid_ds, 
@@ -197,7 +203,7 @@ for i in range(hcol):
                      valid_y, 
                      results = results, 
                      params = params,
-                     cov='w'+str(i),    
+                     cov='x'+str(i),    
                      covariate= params['covariates'][i],
                      ci = 0.95,
                      modname = params['species'])
