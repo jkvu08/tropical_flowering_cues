@@ -71,19 +71,20 @@ def data_gen(data, params):
         X = X[:,:,:,np.newaxis]
     return datasub, X, y
 
-def train_test_data(X,y, datasub,gss):
+def train_test_data(X,y,datasub,gss):
     """
     generate training and testing data
 
     Parameters
     ----------
     X : focal species covariates
+    y: focal species responses
     datasub : focal species dataset
     gss : group split
 
     Returns
     -------
-    train_list : list of training indices
+    train_X : list of training indices
     valid_list : list of valid indices
 
     """
@@ -91,8 +92,9 @@ def train_test_data(X,y, datasub,gss):
     # for this analysis there is only 1 kfold, but this would be extended to multiple kfolds
     for train_index,valid_index in gss.split(X[0,0,:,0], y, groups = datasub['year']):
         train_X, valid_X = X[:,:,train_index,:], X[:,:,valid_index,:]
+        train_ds, valid_ds = datasub.iloc[train_index,:], datasub.iloc[valid_index,:] 
         train_y, valid_y = y[train_index,:], y[valid_index,:]
-    return train_X, valid_X, train_y, valid_y
+    return train_X, valid_X, train_y, valid_y, train_ds, valid_ds
 
 ### DATA MODEL FUNCTIONS
 def single_model(X, y, params):
@@ -721,6 +723,44 @@ def outtab(train_tab, valid_tab, binom_tab, filename, path):
     output.to_csv(path+ filename +'_output_metrics.csv') # save performance metric table
     return output
 
+def get_ci(ary, alpha = 0.95):
+    '''
+    extract credible intervals from posterior samples
+
+    Parameters
+    ----------
+    ary : array of posterior samples 
+    alpha : credible interval threshold
+        DEFAULT = 0.95
+
+    Returns
+    -------
+    lpi : array of lower credible interval values 
+    upi : array of upper credible interval values
+    '''
+    # assign lower and upper cutoffs
+    lci = (1-alpha)/2 # lower cutoff
+    uci = 1-lci # upper cutoff 
+    
+    # creat empty list to population credible interval values
+    lpi = [] # lower credible intervals
+    upi = [] # upper credible intervals
+    
+    # get indicese of lower and upper limit of the credible interval values
+    llim = int(ary.shape[0]*lci)-1
+    ulim = int(ary.shape[0]*uci)-1
+    
+    # extract credible interval values
+    for i in range(ary.shape[1]): 
+        svalues = np.sort(ary[:,i]) # sort the array chronologically 
+        # add credible interval value based on credible interval indices
+        lpi.append(svalues[llim]) 
+        upi.append(svalues[ulim]) 
+    # convert list to array
+    lpi = np.array(lpi)
+    upi = np.array(upi)
+    return lpi, upi
+
 ### DEFINE VISUALIZATION FUNCTIONS
 def roc_plot(y, y_prob):
     """
@@ -837,7 +877,7 @@ def dbplot(data,y,cov='w',valid = False, legend = False):
         input_p = data['p']# ppc for probability of positive class
         p = np.median(input_p,0) # get median predictive probability of positive class
         w = np.median(input_w,0) # get median estimated cue
-        input_pi = data['y']/y[:,1]
+        input_pi = data['y']/y[:,1] # regenerate probabilities from binomially sampled counts of individuals flowering
         
     else:
         input_w = data['posterior'][cov].to_numpy() # trace for cue
@@ -901,7 +941,7 @@ def dbplot(data,y,cov='w',valid = False, legend = False):
                       loc='center left', 
                       framealpha= 0.5) 
 
-def covplot(data, y,cov='w', covariate ='solar', medthreshold = 0, modname = None):
+def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = None):
     """
     Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals against cue conditions
 
@@ -909,7 +949,8 @@ def covplot(data, y,cov='w', covariate ='solar', medthreshold = 0, modname = Non
     ----------
     data : posterior predictive check
     y : labeled true values (obs prob of flowering)
-    cov: covariate to plot
+    cov: covariate variable name to plot
+        DEFAULT is 'w0'
     covariate: weather condition: 'rain', 'temp', 'solar'
         DEFAULT is 'solar'
     medthreshold: median threshold cue condition
@@ -937,11 +978,11 @@ def covplot(data, y,cov='w', covariate ='solar', medthreshold = 0, modname = Non
     # get the 95% credible intervals
     az.plot_hdi(w,input_pi,0.95,smooth = False, fill_kwargs={"alpha": 0.2, 
                                                              "color": "grey", 
-                                                             "label": "p 95% prediction intervals"})
+                                                             "label": "p 95% credible intervals"})
     # get the 95% prediction intervals   
     az.plot_hdi(w,input_p,0.95,smooth = False, fill_kwargs={"alpha": 0.6, 
                                                             "color": "dimgrey", 
-                                                            "label": "p 95% HPD"})
+                                                            "label": "p 95% prediction intervals"})
     # plot vertical line for median threshold condition
     pyplot.vlines(x=medthreshold, 
                   ymin=0, 
@@ -971,73 +1012,153 @@ def covplot(data, y,cov='w', covariate ='solar', medthreshold = 0, modname = Non
     else:
         raise Exception ('invalid covariate')
     pyplot.ylabel('p', rotation=0) # add y axis title
-    pyplot.title(modname, style = 'italic')
+    pyplot.title(modname)
 
-def time_series_plot(data, gss, filename, species, model, cov = 'x', covariate = 'solar radiation (W/m2)'):
-    """
-    Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals
+def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov = 'w0', covariate = 'solar', ci = 0.95, modname =''):
+    '''
+    Plot time series of flowering prob and weather conditions with predition and credible intervals
 
     Parameters
     ----------
-    data : inference data
-    y : labeled true values
-    cov: covariate to plot
-    valid: validation data: True or False
+    train_ds : species specific training data 
+    valid_ds : species specific validation data
+    train_y : training flowering phenology data
+    valid_y : validation flowering phenology data
+    results : model results
+    params : model parameters
+    cov : covariate variable being plotted 
+        The default is 'w0'.
+    covariate : cue condition
+        The default is 'solar'.
+    ci : prediction/credible interval alpha  
+        The default is 0.95.
+    modname : plot title
+    The default is ''.
 
-    """
-    params['species'] = species
-    results = joblib.load(filename +'.pkl')
-    datasub, X, y = data_gen(data, params)
-    train_X, valid_X, train_y, valid_y = date_sub(y, datasub, gss)
+    Raises
+    ------
+    Exception
+        invalid covariate specified
 
-    # get the indices of cue values sorted in descending order
-    data_vp = results['vppc']['p']
-    data_tp = results['ppc']['p']
+    Returns
+    -------
+    None.
+
+    '''
+
+    # get posterior preditions for flowering prob
+    data_vp = results['vppc']['p'] # validation data
+    data_tp = results['ppc']['p'] # training data
     
-    data_vpi = results['vppc']['y']/valid_y[:,1]
-    data_tpi = results['ppc']['y']/train_y[:,1]
+    # regenerate probabilities from binomially sampled counts of individuals flowering
+    data_vpi = results['vppc']['y']/valid_y[:,1] # validation
+    data_tpi = results['ppc']['y']/train_y[:,1] # training
     
-    pred_pi = np.concatenate((data_tpi,data_vpi),axis =1)
-    pred_tv = np.concatenate((data_tp, data_vp), axis = 1)
+    # concatenate the two predicted probabilities together
+    pred_pi = np.concatenate((data_tpi,data_vpi),axis =1) # validation
+    pred_tv = np.concatenate((data_tp, data_vp), axis = 1) #  training
     
+    # get weather conditions during cue period
     data_vx = results['vppc'][cov]
     data_tx = results['ppc'][cov]
-    cov_tv = np.concatenate((data_tx, data_vx), axis = 1)   
-    if covariate == 'rainfall (mm)':
-        cov_tv = cov_tv*206.8
-    elif covariate == 'temperature (C)':
-        cov_tv = cov_tv*(32.1225-14.71125)+14.71125
-    elif covariate == 'solar radiation (W/m2)':
-        cov_tv = cov_tv*(8846-279)+279
-        
-    obs_tv = pd.concat((train_X, valid_X), axis = 0)
-   # obs_tv['dataset'] = np.concatenate([np.repeat('train', len(train_y)), np.repeat('valid', len(valid_y))])
-    p = np.median(pred_tv,0) # get mean predictive probability of positive class
-    x = np.median(cov_tv,0) # get mean predictive probability of positive class
-    plp95, pup95 = get_ci(pred_tv)
-    xlp95, xup95 = get_ci(cov_tv)
-    pilp95, piup95 = get_ci(pred_pi)
+    cov_tv = np.concatenate((data_tx, data_vx), axis = 1) # concatenate weather conditions together
     
-    w = obs_tv['Date'].values
-    w = [pd.to_datetime(d) for d in w]
-    idx = np.argsort(w)
-    y = obs_tv['prop_fl'].values
-  
+    # backtransform weather condition values
+    if covariate == 'rain':
+        cov_tv = cov_tv*206.8
+    elif covariate == 'temp':
+        cov_tv = cov_tv*(32.1225-14.71125)+14.71125
+    elif covariate == 'solar':
+        cov_tv = cov_tv*(8846-279)+279
+    else: 
+        raise Exception ('invalid covariate')
+    
+    # get median posterior predictive
+    p = np.median(pred_tv,0) # probability of flowering
+    x = np.median(cov_tv,0) # weather conditions during cue period
+    
+    # get prediction/credible intervals
+    plp95, pup95 = get_ci(pred_tv, ci)
+    xlp95, xup95 = get_ci(cov_tv, ci)
+    pilp95, piup95 = get_ci(pred_pi, ci)
+    
+    # concatenate datasub training and validation together
+    obs_tv = pd.concat((train_ds, valid_ds), axis = 0)
+   # obs_tv['dataset'] = np.concatenate([np.repeat('train', len(train_y)), np.repeat('valid', len(valid_y))])
+    w = obs_tv['Date'].values # get dates
+    w = [pd.to_datetime(d) for d in w] # convert to date time format 
+    idx = np.argsort(w) # get chronologically ordered indices
+    y = obs_tv['prop_fl'].values # get observe prop of individual flowering ( = prob of flowering)
+    
+    # plot time series of flowering and weather cues with prediction and credible intervals 
     fig, ax1 = pyplot.subplots(figsize = (12,1.5))
     ax2 = ax1.twinx()
-
-    ax1.fill_between(np.sort(w), pilp95[idx], piup95[idx], color='#98FB98', alpha=0.6)
-    ax1.fill_between(np.sort(w), plp95[idx], pup95[idx], color='#308014', alpha=0.6)
-    ax2.fill_between(np.sort(w), xlp95[idx], xup95[idx], color='dimgrey', alpha=0.6)
-    ax1.plot(np.sort(w), p[idx], color='black', lw=1, label="Mean p")
-    ax2.plot(np.sort(w), x[idx], color='black', lw=1, linestyle = 'dashed', label="Mean p")
-    ax1.scatter(w[:len(train_X)], np.random.normal(y[:len(train_X)],0.001), marker='^', alpha=0.6, c = '#377eb8', label="Data")
-    ax1.scatter(w[len(train_X):], np.random.normal(y[len(train_X):],0.001), marker='o', alpha=0.6, c = '#a65628', label="Data")
     
+    # prediction interval for flowering prob
+    ax1.fill_between(np.sort(w), 
+                     pilp95[idx], 
+                     piup95[idx], 
+                     color='#98FB98', 
+                     alpha=0.6) 
+    
+    # credible interval for flowering prob
+    ax1.fill_between(np.sort(w), 
+                     plp95[idx], 
+                     pup95[idx], 
+                     color='#308014', 
+                     alpha=0.6) 
+    
+    # prediction interval for cue condition
+    ax2.fill_between(np.sort(w), 
+                     xlp95[idx], 
+                     xup95[idx], 
+                     color='dimgrey', 
+                     alpha=0.6) 
+    
+    # median prob of flowering 
+    ax1.plot(np.sort(w), 
+             p[idx], 
+             color='black', 
+             lw=1, 
+             label="median p") 
+    
+    # median estimate for cue condition 
+    ax2.plot(np.sort(w), 
+             x[idx], 
+             color='black', 
+             lw=1, 
+             linestyle = 'dashed', 
+             label="median cov")
+    
+    # plot training observed flowering prob
+    ax1.scatter(w[:len(train_ds)], 
+                np.random.normal(y[:len(train_ds)],0.001), 
+                marker='^', 
+                alpha=0.6, 
+                c = '#377eb8', 
+                label="Data")  
+    
+    # plot validation observed flowering prob
+    ax1.scatter(w[len(train_ds):], 
+                np.random.normal(y[len(train_ds):],0.001), 
+                marker='o', 
+                alpha=0.6, 
+                c = '#a65628', 
+                label="Data")
+    
+    # assign primary axes labels
     ax1.set_xlabel('date') # add x axis title
     ax1.set_ylabel('flowering proportion') # add y axis title
-    ax2.set_ylabel(covariate) # add y axis title
-    ax1.set_title(model)
+    # assign secondary axes labels
+    if covariate == 'rain':
+        ax2.set_ylabel('rainfall (mm)') # add y axis title
+    elif covariate == 'temp':
+        ax2.set_ylabel('temperature (C)') # add y axis title
+    elif covariate == 'solar':
+        ax2.set_ylabel('solar radiation (W/m2)') # add y axis title
+    else: 
+        raise Exception ('invalid covariate')
+    ax1.set_title(modname) # assign title
     
 def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_prob):
     '''
@@ -1092,8 +1213,9 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
     Parameters
     ----------
     results : dictionary of results with model, trace, posterior predictions, features and filename
-    y : observed y
-    variables : parameters of interest
+    train_y : observed number of individuals flowering (training)
+    valid_y : observed number of individuals flowering (validation)
+    params: model parameters
     path : directory to save results
     
     Returns
@@ -1154,15 +1276,26 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         pyplot.close() # close page
         
         # generate posterior predictive check plot
-        name_var = params['name_var'][2:] # get variable names
-        hcol = len(name_var) # number of variables
+        hcol = len(params['covariates']) # number of cuues 
         fig,ax = pyplot.subplots(hcol,2,figsize =(8,3*hcol))
         # for each variable plot observed, predictions with credible intervals against weather conditions during cue period
         for i in range(hcol):
             pyplot.subplot(hcol,2,2*i+1)
-            dbplot(results['ppc'],train_y, cov=name_var[i],valid = False) # training 
+            # generate for training
+            covplot(data=results['ppc'],
+                    y=train_y,
+                    cov='w'+str(i),
+                    covariate = params['covariates'][i],
+                    medthreshold = sum_df.loc['threshold'+str(i), 'median'],
+                    modname = params['species'] + ' training')
             pyplot.subplot(hcol,2,2*i+2)
-            dbplot(results['vppc'],valid_y, cov=name_var[i],valid = True) # validation
+             # generate for validation
+            covplot(data=results['vppc'],
+                    y=valid_y,
+                    cov='w'+str(i),
+                    covariate = params['covariates'][i],
+                    medthreshold = sum_df.loc['threshold'+str(i), 'median'],
+                    modname = params['species'] + ' validation')
         fig.tight_layout()
         pdf.savefig() # save figure
         pyplot.close() # close page
@@ -1255,10 +1388,10 @@ def flower_model_wrapper(data, params, species, covariates, threshold = True, di
     # subset focal species phenology data, covariate array and response array
     datasub, X, y = data_gen(data, params) 
     # split data into training and validation
-    train_X, valid_X, train_y, valid_y = train_test_data(X,
-                                                         y,
-                                                         datasub,
-                                                         gss) 
+    train_X, valid_X, train_y, valid_y, train_ds, valid_ds = train_test_data(X,
+                                                                             y,
+                                                                             datasub,
+                                                                             gss)
     # run flowering cue model
     if len(params['covariates']) ==1: # if single weather condition assumed to cue flowering
         params['name_var'] = ['y','p','w0','x0'] # reassign variable names
