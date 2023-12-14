@@ -37,13 +37,13 @@ def compare_plots(comp_dict,path,species):
     None.
 
     """
-    filename = path+species+'\\'+species # generate file name
+    filename = path + species # generate file name
     comp_df = az.compare(comp_dict, 'loo') # generate comparison table using loo
     comp_df.to_csv(filename + '_loo_comparison.csv') # save comparison table
     comp_df.iloc[:,1:7] = round(comp_df.iloc[:,1:7],3)  # round the comparison table for visualization
     
     # format summary table into graphic
-    fig, ax = pyplot.subplots(figsize = (6,6), nrows=2) # format figure layout
+    fig, ax = pyplot.subplots(figsize = (8,6), nrows=2) # format figure layout
     # add comparison table to first subplot
     metrictab = ax[0].table(cellText=comp_df.values,
                             colLabels = comp_df.columns, 
@@ -70,6 +70,7 @@ def compare_plots(comp_dict,path,species):
     fig.tight_layout() # tighten layout
     fig.savefig(filename + '_model_comparison.png', dpi=150) # save figure
     pyplot.close() # close the plot
+    return fig
 
 # load loo data
 mod1 = joblib.load('Rahiaka_temp_single_pos_2023_loo.pkl')  
@@ -80,8 +81,9 @@ comp_dict = {'warm': mod1,
             'low light x warm': mod2}
              
 # run plot comparisons 
-# open file to visualize relative performance
-compare_plots(comp_dict, path, 'Rahiaka')
+# compares loo and ranks models based on loo
+comp_fig = compare_plots(comp_dict, path, 'Rahiaka')
+comp_fig
 
 # merge performance metrics for each model into a single dataframe
 # load performance metrics 
@@ -89,8 +91,11 @@ metrics1 = read_csv(path + 'Rahiaka_temp_single_pos_2023_output_metrics.csv', he
 metrics2 = read_csv(path + 'Rahiaka_solar_temp_double_negpos_2023_output_metrics.csv', header =0)
 
 # assing column name for datatype
-metrics1.column[0] = 'datatype'
-metrics2.column[0] = 'datatype'
+metrics1.rename(columns={'Unnamed: 0': 'datatype'},
+                inplace = True)
+
+metrics2.rename(columns={'Unnamed: 0': 'datatype'},
+                inplace = True)
 
 # add column for model identifier
 metrics1['model'] = 'warm'
@@ -101,9 +106,13 @@ combined_metrics = pd.concat([metrics1,metrics2],
                              ignore_index = True)
 
 # sort by the datatype and the model
-combined_metrics.sort_values(by=['datatype', 'model'])
+combined_metrics.sort_values(by=['datatype', 'model'],
+                             inplace = True)
 
 # view to assess relative performance
 combined_metrics
+
+# low light x warm model slightly outperforms warm model across all metrics examined
+
 # save comparison of performance metrics
 combined_metrics.to_csv(path + 'Rahiaka_cue_model_comparisons.csv')
