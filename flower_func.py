@@ -2,9 +2,7 @@
 """
 Created on Wed Jun  8 14:05:32 2022
 Objective of this project is to identify the weather cues that tropical plants use to regulate their flowering and the timescales at which they occur. 
-Objective of this code is to use Bayesian logistic regression to predict the probability of flowering in a species given the mean weather conditions in a preceding time window. 
-Six weather conditions (rain, drought, low temp, high temp, low light and high light) and 2-way combinations of these weather conditions were considered as potential cues.
-A unique model was run for each potential cue/ cue combination.
+Functions for Bayesian logistic regression pipeline to predict and visualize the probability of flowering in a species given the mean weather conditions in a preceding time window. 
 @author: Jannet
 """
 # load packages/modules
@@ -149,7 +147,7 @@ def single_model(X, y, params):
             # prob of flowering increases once weather conditions exceed threshold during the cue period
             if params['direction'][0] == 'positive':
                 # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition0 - threshold0  
-                w0 = pm.Deterministic('w0', tt.switch(tt.lt(X[lag0,window0,:,0]-threshold0,0),0,X[lag0,window0,:,0]-threshold0)) # if weather onditons < threshold then ressign to 0
+                w0 = pm.Deterministic('w0', tt.switch(tt.lt(X[lag0,window0,:,0]-threshold0,0),0,X[lag0,window0,:,0]-threshold0)) # if weather conditons < threshold then ressign to 0
             # prob of flowering increases once weather conditions drops below a threshold during the cue period
             else:
                 # if weather condition does not meet threshold, then reassign to 0, otherwise weather condition0 - threshold0  
@@ -278,14 +276,14 @@ def double_model(X,y,params):
         observed=pm.Binomial("y", n=n, p=p, observed=y[:,0]) # add observed number of individuals flowering on each survey day
         return double_model
 
-def run_model(X, y, model, params, save = None):
+def run_model(X,y, model, params, save = None):
     """
-    run models
+    run model and sample from posterior distribution
 
     Parameters
     ----------
-    X : covariates table
-    y : observed target data (number of individuals flowering)
+    X : covariates table (validation)
+    y : observed target data (number of individuals flowering) for validation
     model : model
     params: model parameters
     save : output saving mode. full = saves all results, trace = only saves trace, None = does not save results
@@ -296,7 +294,9 @@ def run_model(X, y, model, params, save = None):
     results in form of dictionary
         {'model': model 
          'trace': trace output from model
-         'ppc': posterior predictive sample
+         'inference': inference data
+         'ppc': posterior predictive samples training
+         'vppc': posterior predictive samples validation 
          'filename': filename for results 
          }
 
@@ -314,40 +314,48 @@ def run_model(X, y, model, params, save = None):
                         tune=params['nb']) # number of burn-ins
         # thin samples
         trace = trace._slice(slice(0,params['ni'],params['nt'])) 
-        # sample posterior predictions
+        # sample posterior predictions for training data
         postpred = pm.sample_posterior_predictive(trace=trace, 
                                                   var_names = params['name_var']) 
         # get inference data
         infdata = az.from_pymc3(trace = trace, 
                                 log_likelihood = True) 
+        print('model training took', (time.time()-start_time)/60, 'minutes') # output how long the model took  
         
-    print('model took', (time.time()-start_time)/60, 'minutes') # output how long the model took
-    
+        # sample posterior predictions for validation data
+        pm.set_data({'X': X,
+                     'n': y[:,1].astype('int32')})
+        vppc = pm.sample_posterior_predictive(trace,
+                                              var_names =params['name_var'])
+        
+    print('model traing & validation took', (time.time()-start_time)/60, 'minutes') # output how long the model took  
+        
     # assign filename
     if params['threshold'] == True:    
         filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['relation'] + params['mtype'] 
     else:
         filename = params['species'] + '_' + '_'.join(params['covariates']) + '_'+ params['relation'] +'_nt'+ params['mtype']
+ 
+    # put results in dictionary
+    results = {'model': model,
+               'trace': trace,
+               'inference': infdata,
+               'ppc': postpred,
+               'vppc': vppc,
+               'filename':filename}
     
     # save output
     if save == 'full':# save all model components
         start_time = time.time() # restart the time to see how long saving takes
         # put model and components into a dictionary and save as pickle
-        joblib.dump({'model': model,
-                     'trace': trace,
-                     'inference': infdata,
-                     'ppc': postpred,
-                     'filename':filename},filename+'.pkl')    
-        print('model saving took', str((time.time()-start_time)/60), 'minutes') # output how long saving takes
+        joblib.dump(results,filename+'.pkl')    
     elif save == 'trace': # only save the trace
         joblib.dump(infdata, filename+'_trace.pkl')
-        print('model saving took', str((time.time()-start_time)/60), 'minutes') # output how long saving takes
+    else:
+        print('model not saved')
+    print('model saving took', str((time.time()-start_time)/60), 'minutes') # output how long saving takes
     
-    return {'model': model,
-            'trace': trace,
-            'inference':infdata,
-            'ppc': postpred,
-            'filename':filename}
+    return results
 
 ### DATA PREDICTION FUNCTIONS
 def bern_pred_gen(y, ypred, ds = 'train'):
@@ -852,7 +860,7 @@ def trace_image(results, params, path):
     fig.savefig(path+results['filename']+'_trace.jpg', dpi=150) # save the trace plots as an image to flatten
     pyplot.close() # close the plot
 
-def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = None):
+def covplot(data, y,cov='x0', covariate ='solar', medthreshold = 0, modname = None):
     """
     Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals against cue conditions
 
@@ -861,7 +869,7 @@ def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = No
     data : posterior predictive check
     y : labeled true values (obs prob of flowering)
     cov: covariate variable name to plot
-        DEFAULT is 'w0'
+        DEFAULT is 'x0'
     covariate: weather condition: 'rain', 'temp', 'solar'
         DEFAULT is 'solar'
     medthreshold: median threshold cue condition
@@ -870,28 +878,28 @@ def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = No
 
     """
     # extract traces
-    input_w = data[cov] # ppc for weather conditions during cue period
+    input_x = data[cov] # ppc for weather conditions during cue period
     if covariate == 'rain': # backtransform if rain data
-        input_w = input_w*(206.8) 
+        input_x = input_x*(206.8) 
     elif covariate == 'temp': # backtransform if temp data
-        input_w = input_w*(32.1225-14.71125)+14.71125
+        input_x = input_x*(32.1225-14.71125)+14.71125
     elif covariate == 'solar': # backtransform if solar data
-        input_w = input_w*(8846-279)+279 
+        input_x = input_x*(8846-279)+279 
     else:
         raise Exception ('invalid covariate')
     input_p = data['p'] # predictions for probability of flowering
     p = np.median(input_p,0) # get median predictive probability of flowering for each survey date
-    w = np.median(input_w,0) # get median estimated weather conditions during cue period for each survey date
+    x = np.median(input_x,0) # get median estimated weather conditions during cue period for each survey date
     input_pi = data['y']/y[:,1] # divide binom pred counts of individuals flowering by number of individuals sampled
 
     # get the indices of cue values sorted in descending order
-    idx = np.argsort(w)
+    idx = np.argsort(x)
     # get the 95% credible intervals
-    az.plot_hdi(w,input_pi,0.95,smooth = False, fill_kwargs={"alpha": 0.2, 
+    az.plot_hdi(x,input_pi,0.95,smooth = False, fill_kwargs={"alpha": 0.2, 
                                                              "color": "grey", 
                                                              "label": "p 95% credible intervals"})
     # get the 95% prediction intervals   
-    az.plot_hdi(w,input_p,0.95,smooth = False, fill_kwargs={"alpha": 0.6, 
+    az.plot_hdi(x,input_p,0.95,smooth = False, fill_kwargs={"alpha": 0.6, 
                                                             "color": "dimgrey", 
                                                             "label": "p 95% prediction intervals"})
     # plot vertical line for median threshold condition
@@ -901,14 +909,14 @@ def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = No
                   color='black', 
                   ls='--')  
     # plot median predictive probability of flowering against median estimated cue
-    pyplot.plot(w[idx], 
+    pyplot.plot(x[idx], 
                 p[idx], 
                 color='black', 
                 lw=1.5, 
                 alpha = 0.5, 
                 label="median p")
     # plot observed flowering prob
-    pyplot.scatter(w, 
+    pyplot.scatter(x, 
                    np.random.normal(y[:,2], 0.001), 
                    marker='.', 
                    alpha = 0.7,
@@ -925,7 +933,7 @@ def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = No
     pyplot.ylabel('p', rotation=0) # add y axis title
     pyplot.title(modname)
 
-def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov = 'w0', covariate = 'solar', ci = 0.95, modname =''):
+def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov = 'x0', covariate = 'solar', ci = 0.95, modname =''):
     '''
     Plot time series of flowering prob and weather conditions with predition and credible intervals
 
@@ -938,7 +946,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
     results : model results
     params : model parameters
     cov : covariate variable being plotted 
-        The default is 'w0'.
+        The default is 'x0'.
     covariate : cue condition
         The default is 'solar'.
     ci : prediction/credible interval alpha  
@@ -1351,8 +1359,8 @@ def flower_model_wrapper(data, gss, params, path, species, covariates, threshold
     else: # otherwise raise exception
         raise Exception ('too few or too many covariates entered')
     # run model and save output 
-    results = run_model(train_X,
-                        train_y,
+    results = run_model(valid_X,
+                        valid_y,
                         model,
                         params, 
                         save=params['save']) 
