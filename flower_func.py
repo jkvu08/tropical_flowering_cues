@@ -1004,9 +1004,9 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
     # concatenate datasub training and validation together
     obs_tv = pd.concat((train_ds, valid_ds), axis = 0)
    # obs_tv['dataset'] = np.concatenate([np.repeat('train', len(train_y)), np.repeat('valid', len(valid_y))])
-    w = obs_tv['Date'].values # get dates
-    w = [pd.to_datetime(d) for d in w] # convert to date time format 
-    idx = np.argsort(w) # get chronologically ordered indices
+    d = obs_tv['Date'].values # get dates
+    d = [pd.to_datetime(t) for t in d] # convert to date time format 
+    idx = np.argsort(d) # get chronologically ordered indices
     y = obs_tv['prop_fl'].values # get observe prop of individual flowering ( = prob of flowering)
     
     # plot time series of flowering and weather cues with prediction and credible intervals 
@@ -1014,35 +1014,35 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
     ax2 = ax1.twinx()
     
     # prediction interval for flowering prob
-    ax1.fill_between(np.sort(w), 
+    ax1.fill_between(np.sort(d), 
                      pilp95[idx], 
                      piup95[idx], 
                      color='#98FB98', 
                      alpha=0.6) 
     
     # credible interval for flowering prob
-    ax1.fill_between(np.sort(w), 
+    ax1.fill_between(np.sort(d), 
                      plp95[idx], 
                      pup95[idx], 
                      color='#308014', 
                      alpha=0.6) 
     
     # prediction interval for cue condition
-    ax2.fill_between(np.sort(w), 
+    ax2.fill_between(np.sort(d), 
                      xlp95[idx], 
                      xup95[idx], 
                      color='dimgrey', 
                      alpha=0.6) 
     
     # median prob of flowering 
-    ax1.plot(np.sort(w), 
+    ax1.plot(np.sort(d), 
              p[idx], 
              color='black', 
              lw=1, 
              label="median p") 
     
     # median estimate for cue condition 
-    ax2.plot(np.sort(w), 
+    ax2.plot(np.sort(d), 
              x[idx], 
              color='black', 
              lw=1, 
@@ -1050,7 +1050,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
              label="median cov")
     
     # plot training observed flowering prob
-    ax1.scatter(w[:len(train_ds)], 
+    ax1.scatter(d[:len(train_ds)], 
                 np.random.normal(y[:len(train_ds)],0.001), 
                 marker='^', 
                 alpha=0.6, 
@@ -1058,7 +1058,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
                 label="Data")  
     
     # plot validation observed flowering prob
-    ax1.scatter(w[len(train_ds):], 
+    ax1.scatter(d[len(train_ds):], 
                 np.random.normal(y[len(train_ds):],0.001), 
                 marker='o', 
                 alpha=0.6, 
