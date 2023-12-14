@@ -1245,7 +1245,7 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
             # generate for training
             covplot(data=results['ppc'],
                     y=train_y,
-                    cov='w'+str(i),
+                    cov='x'+str(i),
                     covariate = params['covariates'][i],
                     medthreshold = sum_df.loc['threshold'+str(i), 'median'],
                     modname = params['species'] + ' training',
@@ -1254,7 +1254,7 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
              # generate for validation
             covplot(data=results['vppc'],
                     y=valid_y,
-                    cov='w'+str(i),
+                    cov='x'+str(i),
                     covariate = params['covariates'][i],
                     medthreshold = sum_df.loc['threshold'+str(i), 'median'],
                     modname = params['species'] + ' validation',
@@ -1271,7 +1271,7 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
                              valid_y, 
                              results = results, 
                              params = params,
-                             cov='w'+str(i),    
+                             cov='x'+str(i),    
                              covariate= params['covariates'][i],
                              ci = 0.95,
                              modname = params['species'])
