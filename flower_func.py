@@ -852,95 +852,6 @@ def trace_image(results, params, path):
     fig.savefig(path+results['filename']+'_trace.jpg', dpi=150) # save the trace plots as an image to flatten
     pyplot.close() # close the plot
 
-def dbplot(data,y,cov='w',valid = False, legend = False):
-    """
-    Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals relative to cue conditions
-
-    Parameters
-    ----------
-    data : inference data
-    y : labeled true values (obs prob)
-    cov: variable to plot
-    valid: boolean, True = restricted to validation data, False = training and valid data both plotted 
-        DEFAULT: False
-    legend: boolean, add legend if True
-        DEFAULT: False
-
-    Returns
-    -------
-    None.
-
-    """
-    if type(data) == dict:
-        # extract traces
-        input_w = data[cov] # ppc for cue
-        input_p = data['p']# ppc for probability of positive class
-        p = np.median(input_p,0) # get median predictive probability of positive class
-        w = np.median(input_w,0) # get median estimated cue
-        input_pi = data['y']/y[:,1] # regenerate probabilities from binomially sampled counts of individuals flowering
-        
-    else:
-        input_w = data['posterior'][cov].to_numpy() # trace for cue
-        input_p = data['posterior']['p'].to_numpy() # trace for probability of positive class
-        p = np.median(input_p,0)  # get mean predictive probability of positive class
-        p = np.median(p,0)  
-        # get mean estimated cue
-        w0 = np.median(input_w,0)
-        w = np.median(w0, 0)
-    
-    # get the indices of cue values sorted in descending order
-    idx = np.argsort(w)
-   
-    # plot vertical line for mean cue
-    pyplot.vlines(np.median(w), 
-                  0, 
-                  1, 
-                  color='k', 
-                  ls='--', 
-                  label ='median') 
-    # get the 95% prediction intervals
-    try:
-        az.plot_hdi(w,
-                    input_pi,
-                    0.95,
-                    fill_kwargs={"alpha": 0.2, 
-                                 "color": "green", 
-                                 "label": "p 95% prediction intervals"})
-        # get the 95% credible intervals
-        az.plot_hdi(w,
-                    input_p,
-                    0.95,
-                    fill_kwargs={"alpha": 0.6, 
-                                 "color": "darkgreen", 
-                                 "label": "p 95% credible interval"})
-    except:
-        print(cov + ' no variation in median')
-    
-    # plot median predictive probability of positive class against median estimated cue
-    pyplot.plot(w[idx], 
-                p[idx], 
-                color='black', 
-                lw=2, 
-                label="Median p")
-    # plot observed values of y
-    pyplot.scatter(w, 
-                   np.random.normal(y[:,2], 0.001), 
-                   marker='.', 
-                   alpha=0.5, 
-                   c = 'dimgrey',
-                   label="Data")
-    pyplot.xlabel(cov)# add x axis title
-    pyplot.ylabel('p', rotation=0) # add y axis title
-    if valid == True:
-        pyplot.title('posterior predictive check valid')
-    else:
-        pyplot.title('posterior predictive check')
-    if legend == True:
-        # add legend
-        pyplot.legend(fontsize=8, 
-                      loc='center left', 
-                      framealpha= 0.5) 
-
 def covplot(data, y,cov='w0', covariate ='solar', medthreshold = 0, modname = None):
     """
     Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals against cue conditions
@@ -1091,7 +1002,7 @@ def time_series_plot(train_ds, valid_ds, train_y, valid_y, results, params, cov 
     y = obs_tv['prop_fl'].values # get observe prop of individual flowering ( = prob of flowering)
     
     # plot time series of flowering and weather cues with prediction and credible intervals 
-    fig, ax1 = pyplot.subplots(figsize = (12,1.5))
+    fig, ax1 = pyplot.subplots(figsize = (10,2))
     ax2 = ax1.twinx()
     
     # prediction interval for flowering prob
@@ -1206,7 +1117,7 @@ def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_
     fig.tight_layout() # set tight layout
     return fig
 
-def pymc_vis_split(results, train_y, valid_y, params, path):
+def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
     """
     wrapper function to visualize, organize and save pymc results into a single pdf
 
@@ -1215,6 +1126,8 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
     results : dictionary of results with model, trace, posterior predictions, features and filename
     train_y : observed number of individuals flowering (training)
     valid_y : observed number of individuals flowering (validation)
+    train_ds : data subset for species (training)
+    valid_ds : data subset for species (validation)
     params: model parameters
     path : directory to save results
     
@@ -1255,6 +1168,7 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         pyplot.axis('off') # turn off axis labels and lines
         pdf.savefig(dpi=150) # save figure
         pyplot.close() # close page
+        
         # generate forest/ caterpillar plots with 95% credible intervals
         az.plot_forest(results['inference'], 
                        var_names = params['variables'], 
@@ -1299,9 +1213,25 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
         fig.tight_layout()
         pdf.savefig() # save figure
         pyplot.close() # close page
-                
+        
+        # generate time series plots for each cue
+        for i in range(hcol):
+            time_series_plot(train_ds, 
+                             valid_ds, 
+                             train_y, 
+                             valid_y, 
+                             results = results, 
+                             params = params,
+                             cov='w'+str(i),    
+                             covariate= params['covariates'][i],
+                             ci = 0.95,
+                             modname = params['species'])
+            pdf.savefig() # save figure
+            pyplot.close() # close page
+            
         # generate confusion matrices, roc curves and pr curves  
-        pb_plot = plot_bayes_split(train_tab['obs'],train_tab['pred'], 
+        pb_plot = plot_bayes_split(train_tab['obs'],
+                                   train_tab['pred'], 
                                    train_tab['pred_prob'], 
                                    valid_tab['obs'],
                                    valid_tab['pred'], 
@@ -1355,13 +1285,14 @@ def pymc_vis_split(results, train_y, valid_y, params, path):
     return train_tab, valid_tab, binom_pred
    
 ### MODEL WRAPPER FUNCTION  
-def flower_model_wrapper(data, params, species, covariates, threshold = True, direction = None, relation = None):
+def flower_model_wrapper(data, gss, params, species, covariates, threshold = True, direction = None, relation = None):
     """
     wrapper function to run Bayesian logistic regression cue models
 
     Parameters
     ----------
     data : formatted phenology data for all species
+    gss: data split designation
     params : model parameters
     species : focal species being modeled
     covariates: covariates of interest
@@ -1442,8 +1373,10 @@ def flower_model_wrapper(data, params, species, covariates, threshold = True, di
     train_tab, valid_tab, binom_tab = pymc_vis_split(results, 
                                                      train_y, 
                                                      valid_y, 
+                                                     train_ds,
+                                                     valid_ds,
                                                      params, 
-                                                     path+params['species']+'\\')
+                                                     path)
     print('visualization done')
     
     # generate performance metrics
