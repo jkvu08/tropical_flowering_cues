@@ -6,27 +6,22 @@ Functions for Bayesian logistic regression pipeline to predict and visualize the
 @author: Jannet
 """
 # load packages/modules
-import os, time
+import time
 import arviz as az
 import matplotlib.pyplot as pyplot
 import numpy as np
 import pandas as pd
-from pandas import read_csv, DataFrame
+from pandas import DataFrame
 import pymc3 as pm
 import seaborn as sns
 import theano.tensor as tt
 from sklearn.metrics import roc_curve, confusion_matrix, f1_score, precision_recall_curve, precision_score, recall_score
 from sklearn.metrics import classification_report, average_precision_score, log_loss, roc_auc_score, accuracy_score, mean_squared_error
-from sklearn.model_selection import GroupShuffleSplit
 import joblib
 from matplotlib.backends.backend_pdf import PdfPages
 from PIL import Image
-import imblearn
 from imblearn.metrics import geometric_mean_score
-from imblearn.over_sampling import RandomOverSampler
 import gc
-from pymc3.distributions.continuous import Lognormal
-from PIL import Image
 
 # assign labels for the visualization
 LABELS = ["no flower","flower"]

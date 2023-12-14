@@ -24,10 +24,8 @@ import joblib
 from matplotlib.backends.backend_pdf import PdfPages
 from PIL import Image
 import imblearn
-from imblearn.metrics import geometric_mean_score
-from imblearn.over_sampling import RandomOverSampler
+from imblearn.metrics import geometric_mean_scor
 import gc
-from pymc3.distributions.continuous import Lognormal
 
 # set working directory
 os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues")
@@ -265,3 +263,4 @@ double_metrics = flm.flower_model_wrapper(data = data,
                                          relation = 'double_negpos')
 
 double_metrics
+# rhat on double model high and caterpillar plots show oscillating chains: indicates the model should be run for longer
