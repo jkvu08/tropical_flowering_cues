@@ -28,7 +28,6 @@ from imblearn.metrics import geometric_mean_score
 from imblearn.over_sampling import RandomOverSampler
 import gc
 from pymc3.distributions.continuous import Lognormal
-from PIL import Image
 
 # set working directory
 os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues")
@@ -266,5 +265,3 @@ double_metrics = flm.flower_model_wrapper(data = data,
                                          relation = 'double_negpos')
 
 double_metrics
-
-single_pos
