@@ -169,6 +169,15 @@ class_rep = flm.class_rep_split(train_tab['obs'],
 # get sense of training and validation performance by class and overall
 class_rep
 
+
+# generate confusion matrices, roc curves and pr curves to further visualize performance metrics
+pb_plot = flm.plot_bayes_split(train_tab['obs'],
+                               train_tab['pred'], 
+                               train_tab['pred_prob'], 
+                               valid_tab['obs'],
+                               valid_tab['pred'], 
+                               valid_tab['pred_prob'])
+
 # generate posterior predictive check plots to visualize the relationsihp between weather cue and flowering prob
 hcol = len(params['covariates']) # number of cuues 
 fig,ax = pyplot.subplots(hcol,2,figsize =(8,3*hcol))
@@ -208,15 +217,7 @@ for i in range(hcol):
                      ci = 0.95,
                      modname = params['species'])
 
-# generate confusion matrices, roc curves and pr curves  
-pb_plot = flm.plot_bayes_split(train_tab['obs'],
-                               train_tab['pred'], 
-                               train_tab['pred_prob'], 
-                               valid_tab['obs'],
-                               valid_tab['pred'], 
-                               valid_tab['pred_prob'])
-
-# wrapper function to visualize model results
+# wrapper function to visualize model results and save into pdf
 train_tab, valid_tab, binom_tab = flm.pymc_vis_split(results, 
                                                      train_y, 
                                                      valid_y, 
@@ -225,6 +226,7 @@ train_tab, valid_tab, binom_tab = flm.pymc_vis_split(results,
                                                      params, 
                                                      path)
 
+# get sense of predictions table structure
 train_tab.head()
 valid_tab.head()
 binom_tab.head()
@@ -238,7 +240,7 @@ output = flm.outtab(train_tab,
 
 output
 
-# run wrapper with entire model pipeline with visualization
+# run wrapper with entire model pipeline with visualization output
 # single cue model
 single_metrics = flm.flower_model_wrapper(data = data, 
                                          gss = gss,
@@ -252,6 +254,7 @@ single_metrics = flm.flower_model_wrapper(data = data,
 
 single_metrics
 
+# double cue model
 double_metrics = flm.flower_model_wrapper(data = data, 
                                          gss = gss,
                                          params = params, 
@@ -260,6 +263,8 @@ double_metrics = flm.flower_model_wrapper(data = data,
                                          covariates = ['solar','temp'],
                                          threshold = True,
                                          direction = ['negative','positive'],
-                                         relation = 'negpos')
+                                         relation = 'double_negpos')
 
 double_metrics
+
+single_pos
