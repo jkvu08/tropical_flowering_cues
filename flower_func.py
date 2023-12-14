@@ -900,7 +900,145 @@ def dbplot(data,y,cov='w',valid = False, legend = False):
         pyplot.legend(fontsize=8, 
                       loc='center left', 
                       framealpha= 0.5) 
-       
+
+def covplot(data, y,cov='w', covariate ='solar', medthreshold = 0, modname = None):
+    """
+    Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals against cue conditions
+
+    Parameters
+    ----------
+    data : posterior predictive check
+    y : labeled true values (obs prob of flowering)
+    cov: covariate to plot
+    covariate: weather condition: 'rain', 'temp', 'solar'
+        DEFAULT is 'solar'
+    medthreshold: median threshold cue condition
+    modname: plot title
+        DEFAULT is None
+
+    """
+    # extract traces
+    input_w = data[cov] # ppc for weather conditions during cue period
+    if covariate == 'rain': # backtransform if rain data
+        input_w = input_w*(206.8) 
+    elif covariate == 'temp': # backtransform if temp data
+        input_w = input_w*(32.1225-14.71125)+14.71125
+    elif covariate == 'solar': # backtransform if solar data
+        input_w = input_w*(8846-279)+279 
+    else:
+        raise Exception ('invalid covariate')
+    input_p = data['p'] # predictions for probability of flowering
+    p = np.median(input_p,0) # get median predictive probability of flowering for each survey date
+    w = np.median(input_w,0) # get median estimated weather conditions during cue period for each survey date
+    input_pi = data['y']/y[:,1] # divide binom pred counts of individuals flowering by number of individuals sampled
+
+    # get the indices of cue values sorted in descending order
+    idx = np.argsort(w)
+    # get the 95% credible intervals
+    az.plot_hdi(w,input_pi,0.95,smooth = False, fill_kwargs={"alpha": 0.2, 
+                                                             "color": "grey", 
+                                                             "label": "p 95% prediction intervals"})
+    # get the 95% prediction intervals   
+    az.plot_hdi(w,input_p,0.95,smooth = False, fill_kwargs={"alpha": 0.6, 
+                                                            "color": "dimgrey", 
+                                                            "label": "p 95% HPD"})
+    # plot vertical line for median threshold condition
+    pyplot.vlines(x=medthreshold, 
+                  ymin=0, 
+                  ymax=1, 
+                  color='black', 
+                  ls='--')  
+    # plot median predictive probability of flowering against median estimated cue
+    pyplot.plot(w[idx], 
+                p[idx], 
+                color='black', 
+                lw=1.5, 
+                alpha = 0.5, 
+                label="median p")
+    # plot observed flowering prob
+    pyplot.scatter(w, 
+                   np.random.normal(y[:,2], 0.001), 
+                   marker='.', 
+                   alpha = 0.7,
+                   c = 'black',
+                   label="observed")
+    if covariate == 'rain':
+        pyplot.xlabel('rainfall (mm)')# add x axis title
+    elif covariate == 'temp':
+        pyplot.xlabel('temperature (C)')# add x axis title
+    elif covariate == 'solar':
+        pyplot.xlabel('solar radiation (W/m2)')# add x axis title
+    else:
+        raise Exception ('invalid covariate')
+    pyplot.ylabel('p', rotation=0) # add y axis title
+    pyplot.title(modname, style = 'italic')
+
+def time_series_plot(data, gss, filename, species, model, cov = 'x', covariate = 'solar radiation (W/m2)'):
+    """
+    Posterior predictive check. Plot y and mean predictive probability of y with 95% credible intervals
+
+    Parameters
+    ----------
+    data : inference data
+    y : labeled true values
+    cov: covariate to plot
+    valid: validation data: True or False
+
+    """
+    params['species'] = species
+    results = joblib.load(filename +'.pkl')
+    datasub, X, y = data_gen(data, params)
+    train_X, valid_X, train_y, valid_y = date_sub(y, datasub, gss)
+
+    # get the indices of cue values sorted in descending order
+    data_vp = results['vppc']['p']
+    data_tp = results['ppc']['p']
+    
+    data_vpi = results['vppc']['y']/valid_y[:,1]
+    data_tpi = results['ppc']['y']/train_y[:,1]
+    
+    pred_pi = np.concatenate((data_tpi,data_vpi),axis =1)
+    pred_tv = np.concatenate((data_tp, data_vp), axis = 1)
+    
+    data_vx = results['vppc'][cov]
+    data_tx = results['ppc'][cov]
+    cov_tv = np.concatenate((data_tx, data_vx), axis = 1)   
+    if covariate == 'rainfall (mm)':
+        cov_tv = cov_tv*206.8
+    elif covariate == 'temperature (C)':
+        cov_tv = cov_tv*(32.1225-14.71125)+14.71125
+    elif covariate == 'solar radiation (W/m2)':
+        cov_tv = cov_tv*(8846-279)+279
+        
+    obs_tv = pd.concat((train_X, valid_X), axis = 0)
+   # obs_tv['dataset'] = np.concatenate([np.repeat('train', len(train_y)), np.repeat('valid', len(valid_y))])
+    p = np.median(pred_tv,0) # get mean predictive probability of positive class
+    x = np.median(cov_tv,0) # get mean predictive probability of positive class
+    plp95, pup95 = get_ci(pred_tv)
+    xlp95, xup95 = get_ci(cov_tv)
+    pilp95, piup95 = get_ci(pred_pi)
+    
+    w = obs_tv['Date'].values
+    w = [pd.to_datetime(d) for d in w]
+    idx = np.argsort(w)
+    y = obs_tv['prop_fl'].values
+  
+    fig, ax1 = pyplot.subplots(figsize = (12,1.5))
+    ax2 = ax1.twinx()
+
+    ax1.fill_between(np.sort(w), pilp95[idx], piup95[idx], color='#98FB98', alpha=0.6)
+    ax1.fill_between(np.sort(w), plp95[idx], pup95[idx], color='#308014', alpha=0.6)
+    ax2.fill_between(np.sort(w), xlp95[idx], xup95[idx], color='dimgrey', alpha=0.6)
+    ax1.plot(np.sort(w), p[idx], color='black', lw=1, label="Mean p")
+    ax2.plot(np.sort(w), x[idx], color='black', lw=1, linestyle = 'dashed', label="Mean p")
+    ax1.scatter(w[:len(train_X)], np.random.normal(y[:len(train_X)],0.001), marker='^', alpha=0.6, c = '#377eb8', label="Data")
+    ax1.scatter(w[len(train_X):], np.random.normal(y[len(train_X):],0.001), marker='o', alpha=0.6, c = '#a65628', label="Data")
+    
+    ax1.set_xlabel('date') # add x axis title
+    ax1.set_ylabel('flowering proportion') # add y axis title
+    ax2.set_ylabel(covariate) # add y axis title
+    ax1.set_title(model)
+    
 def plot_bayes_split(train_y, train_pred, train_prob,valid_y, valid_pred, valid_prob):
     '''
     organize confusion matrices, roc curve, and precision-recall curve into a single figure
