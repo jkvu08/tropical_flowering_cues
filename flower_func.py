@@ -38,7 +38,9 @@ cue_dict = {'rain': 0,
             'temp': 1,
             'solar': 2}
 
-### DATA FORMATTING FUNCTIONS
+#################################
+### DATA FORMATTING FUNCTIONS ###
+#################################
 def data_gen(data, params):
     """
     Generate species specific response and covariate data.
@@ -94,7 +96,9 @@ def train_test_data(X,y,datasub,gss):
         train_y, valid_y = y[train_index,:], y[valid_index,:]
     return train_X, valid_X, train_y, valid_y, train_ds, valid_ds
 
-### DATA MODEL FUNCTIONS
+###############################
+### DATA MODELING FUNCTIONS ###
+###############################
 def single_model(X, y, params):
     """
     architecture for Bayesian flowering model when plant assumed to be cued by a single weather condition
@@ -357,7 +361,9 @@ def run_model(X,y, model, params, save = None):
     
     return results
 
-### DATA PREDICTION FUNCTIONS
+#################################
+### DATA PREDICTION FUNCTIONS ###
+#################################
 def bern_pred_gen(y, ypred, ds = 'train'):
     '''
     generate bernoulli predictions 
@@ -462,7 +468,9 @@ def prob_pred_bern(results,train_y,valid_y, path, save = True):
         bern_pred.to_csv(path+results['filename'] + 'bern_predictions.csv')
     return train_tab, valid_tab, binom_pred
 
-### METRIC FUNCTIONS
+########################
+### METRIC FUNCTIONS ###
+########################
 def confusion_mat(y, y_pred, LABELS, normalize = 'true'):
     """
     generates and visualizes the confusion matrix
@@ -769,7 +777,9 @@ def get_ci(ary, alpha = 0.95):
     upi = np.array(upi)
     return lpi, upi
 
-### DEFINE VISUALIZATION FUNCTIONS
+###############################
+### VISUALIZATION FUNCTIONS ###
+###############################
 def roc_plot(y, y_prob):
     """
     generate receiving operator curve graphic
@@ -1291,8 +1301,10 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
         pdf.savefig() # save figure
         pyplot.close() # close page
     return train_tab, valid_tab, binom_pred
-   
-### MODEL WRAPPER FUNCTION  
+
+#################################
+### PIPELINE WRAPPER FUNCTION ###
+#################################
 def flower_model_wrapper(data, gss, params, path, species, covariates, threshold = True, direction = None, relation = None):
     """
     wrapper function to run Bayesian logistic regression cue models
@@ -1365,13 +1377,6 @@ def flower_model_wrapper(data, gss, params, path, species, covariates, threshold
                         params, 
                         save=params['save']) 
     print('training took ' + str(round((time.time()-first_time)/60,3)) + ' mins') # output run time
-    
-    # make predictions on validation set
-    with results['model']:
-        pm.set_data({'X': valid_X,
-                     'n': valid_y[:,1].astype('int32')})
-        results['vppc'] = pm.sample_posterior_predictive(results['trace'],
-                                              var_names =params['name_var'])
 
     # save model output
     save_time = time.time() # monitor saving time
