@@ -1285,7 +1285,7 @@ def pymc_vis_split(results, train_y, valid_y, train_ds, valid_ds, params, path):
     return train_tab, valid_tab, binom_pred
    
 ### MODEL WRAPPER FUNCTION  
-def flower_model_wrapper(data, gss, params, species, covariates, threshold = True, direction = None, relation = None):
+def flower_model_wrapper(data, gss, params, path, species, covariates, threshold = True, direction = None, relation = None):
     """
     wrapper function to run Bayesian logistic regression cue models
 
@@ -1294,6 +1294,7 @@ def flower_model_wrapper(data, gss, params, species, covariates, threshold = Tru
     data : formatted phenology data for all species
     gss: data split designation
     params : model parameters
+    path : path to save model outputs
     species : focal species being modeled
     covariates: covariates of interest
     threshold: Boolean indicating whether the model incorporates thresholds or not
