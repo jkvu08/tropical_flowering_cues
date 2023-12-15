@@ -36,7 +36,6 @@ path = "C:\\tropical_flowering_cues\\BGLM_flower\\"
 import flower_func as flm
 
 # import data
-#data = read_csv('kian_phenology_bernoulli_09062022.csv',header=0).iloc[:,1:]
 data = read_csv('kian_phenology_binomial_format.csv',header=0).iloc[:,1:]
 # data attributions:
 # Date - date (YYYY-MM-DD)
