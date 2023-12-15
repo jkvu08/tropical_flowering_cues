@@ -28,9 +28,9 @@ from imblearn.metrics import geometric_mean_scor
 import gc
 
 # set working directory
-os.chdir("C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues")
+os.chdir("C:\\tropical_flowering_cues")
 # set directory where results will be saved
-path = "C:\\Users\\Jannet\\Documents\\Dissertation\\codes\\tropical_flowering_cues\\BGLM_flower\\"
+path = "C:\\tropical_flowering_cues\\BGLM_flower\\"
 
 # import functions from file
 import flower_func as flm
