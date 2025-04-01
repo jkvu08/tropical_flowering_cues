@@ -23,7 +23,7 @@ Investigate the associations between monthly weather (i.e., rainfall, temperatur
     2. bayesian_flowering_cue_model.py - Implementation of Bayesian logistic regression model with single and double cue model test cases
     3. cue_model_comparisons.py - Performance comparisons between models
     4. BGLM_flower - Folder containing test case results
-    5. Data - Folder containing data used in analyses
+    5. data - Folder containing data used in analyses
 
     
 ## Support
