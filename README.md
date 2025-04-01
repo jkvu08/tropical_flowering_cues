@@ -9,7 +9,6 @@ Investigate the associations between monthly weather (i.e., rainfall, temperatur
  - [Wright et al. 2019, A phenology model for tropical species that flower multiple times each year](https://esj-journals.onlinelibrary.wiley.com/doi/abs/10.1111/1440-1703.1017)
  
 
-
 ## Authors
 
 - [Jannet K. Vu](https://www.github.com/jkvu08)
@@ -18,13 +17,15 @@ Investigate the associations between monthly weather (i.e., rainfall, temperatur
 - [Edward E. Louis Jr.](https://www.researchgate.net/profile/Edward-Louis)
 
 
-
 ## Content
 
     1. flower_func.py - Functions for running and visualizing Bayesian logistic regression to predict flowering of tropical plants and identify their weather cues
     2. bayesian_flowering_cue_model.py - Implementation of Bayesian logistic regression model with single and double cue model test cases
     3. cue_model_comparisons.py - Performance comparisons between models
     4. BGLM_flower - Folder containing test case results
+    5. Data - Folder containing data used in analyses
+
+    
 ## Support
 
 For support, email jannetkimvu@ucla.edu.
