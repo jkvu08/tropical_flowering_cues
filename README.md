@@ -13,7 +13,7 @@ Investigate the associations between monthly weather (i.e., rainfall, temperatur
 
 - [Jannet K. Vu](https://www.github.com/jkvu08)
 - [Sheila M. Holmes](https://www.researchgate.net/profile/Sheila-Holmes)
-- [Cressant P. Razafindravelo (https://madagascarpartnership.org/)
+- [Cressant P. Razafindravelo](https://madagascarpartnership.org/)
 - [Steig E. Johnson](https://www.steigjohnson.com/)
 - [Edward E. Louis Jr.](https://www.researchgate.net/profile/Edward-Louis)
 
