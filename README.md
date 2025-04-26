@@ -1,5 +1,5 @@
 
-# Diverse associations and proximate effects of weather on southeastern Madagascar flowering phenology
+# Diverse associations and proximate effects of weather on Madagascar reproductive phenology
 
 Investigate the associations between monthly weather (i.e., rainfall, temperature and insolation) and species-level flowering and fruiting phenology of tropical plants. Developed Bayesian process-based models to identify the potential weather cues that tropical species use to regulate their flowering time. 
 
@@ -13,6 +13,7 @@ Investigate the associations between monthly weather (i.e., rainfall, temperatur
 
 - [Jannet K. Vu](https://www.github.com/jkvu08)
 - [Sheila M. Holmes](https://www.researchgate.net/profile/Sheila-Holmes)
+- [Cressant P. Razafindravelo (https://madagascarpartnership.org/)
 - [Steig E. Johnson](https://www.steigjohnson.com/)
 - [Edward E. Louis Jr.](https://www.researchgate.net/profile/Edward-Louis)
 
